@@ -58,12 +58,21 @@ def ram(pg):
     pg.wait_for_timeout(300)
 
 
-def shots(pg, name, w, h, scheme, action):
-    pass
+def die(pg):
+    """The CPU as a toy die floorplan, with the regions glowing while LDA #$55 runs."""
+    open_program_panel(pg)
+    pg.select_option('#demoSel', '1')
+    pg.evaluate("window.__explorer.flyTo('cpu', true)")
+    for _ in range(14):
+        pg.click('#bMicro')
+        pg.wait_for_timeout(90)
+
+
 
 
 JOBS = [
     ('overview', 1400, 860, 'dark', overview),
+    ('die', 1400, 860, 'dark', die),
     ('adder', 1400, 860, 'dark', adder),
     ('tia-picture', 1400, 860, 'dark', picture),
     ('riot-ram', 1400, 860, 'dark', ram),

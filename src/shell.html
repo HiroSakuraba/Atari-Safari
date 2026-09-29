@@ -107,6 +107,30 @@ details.prog[open] summary::after { content: "\2212"; }
 .listing .a { color: var(--mute); }
 .listing .b { color: var(--data); }
 
+
+/* toy die */
+#die { opacity: min(1, calc(var(--diea, 0) * 1.7)); }
+#die .die-body { fill: color-mix(in srgb, var(--panel) 55%, #222c2a); stroke: var(--nstroke); stroke-width: 4; }
+#die .die-edge { fill: none; stroke: color-mix(in srgb, var(--ink) 18%, transparent); stroke-width: 2; }
+#die .die-wire { fill: none; stroke: color-mix(in srgb, var(--ink) 45%, transparent); stroke-width: 2.2; stroke-linecap: round; }
+#die .die-metal { fill: none; stroke: color-mix(in srgb, var(--ink) 16%, transparent); stroke-width: 1.3; }
+#die .mk-b { fill: none; stroke: color-mix(in srgb, var(--ink) 50%, transparent); stroke-width: 2.5; }
+#die .mk-t { font: 700 28px var(--f-mono); fill: color-mix(in srgb, var(--ink) 70%, transparent); letter-spacing: .06em; }
+#die .mk-r { font: 600 15px var(--f-mono); fill: color-mix(in srgb, var(--ink) 50%, transparent); letter-spacing: .3em; }
+#die .die-pad { fill: color-mix(in srgb, var(--addr) 60%, var(--node)); stroke: var(--nstroke); stroke-width: 1.5; }
+.dregion { cursor: pointer; }
+.dregion .dr-b { fill: color-mix(in srgb, var(--kc) calc(8% + var(--h, 0) * 34%), var(--node)); stroke: color-mix(in srgb, var(--kc) calc(35% + var(--h, 0) * 65%), var(--nstroke)); stroke-width: 3; }
+.dregion.lit { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--kc) 70%, transparent)); }
+.dregion .dp { fill: color-mix(in srgb, var(--kc) calc(28% + var(--h, 0) * 50%), transparent); }
+.dregion .dp2 { fill: color-mix(in srgb, var(--ink) 20%, transparent); }
+.dregion .dp3 { fill: color-mix(in srgb, var(--kc) calc(30% + var(--h, 0) * 45%), transparent); }
+.dregion .dr-l { font: 700 26px var(--f-disp); fill: var(--ink); letter-spacing: .03em; paint-order: stroke; stroke: var(--node); stroke-width: 6px; }
+.dregion .dr-c { font: 500 16px var(--f-body); fill: var(--mute); paint-order: stroke; stroke: var(--node); stroke-width: 5px; }
+#stage .cpuel { opacity: max(0, calc(1 - var(--diea, 0) * 1.7)); }
+#stage .frame[data-id="f_cpu"] .fb { fill: transparent; }
+#stage.dieon .cpuel { pointer-events: none; }
+.dietoggle { font: 600 12px var(--f-disp); letter-spacing: .06em; margin-left: auto; }
+
 /* schematic */
 #stage text { font-family: var(--f-disp); }
 .frame .fb { fill: color-mix(in srgb, var(--panel) 62%, transparent); stroke: color-mix(in srgb, var(--kc, var(--chip)) calc(var(--h, 0) * 100%), var(--nstroke)); stroke-width: 3.5; }

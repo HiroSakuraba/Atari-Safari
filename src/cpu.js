@@ -216,7 +216,10 @@ class TIA {
   constructor() { this.fb = new Uint32Array(160 * 192); this.reset(); }
   reset() {
     this.reg = new Uint8Array(64); this.hpos = 0; this.line = 0; this.frame = 0; this.wsync = false;
-    this.p0x = 0; this.p1x = 0; this.vs = false; this.sawSync = false; this.dirty = true; this.fire = false; this.fb.fill(0xFF000000);
+    this.p0x = 0; this.p1x = 0; this.m0x = 0; this.m1x = 0; this.blx = 0;
+    this.gp0n = 0; this.gp1n = 0; this.gp0o = 0; this.gp1o = 0; this.blo = 0;
+    this.cx = new Uint8Array(8); this.hmb = false;
+    this.vs = false; this.sawSync = false; this.dirty = true; this.fire = false; this.fire1 = false; this.fb.fill(0xFF000000);
   }
   write(a, v) {
     if (a > 0x2C) return;
@@ -224,15 +227,34 @@ class TIA {
     switch (a) {
       case 0: { const on = !!(v & 2); if (on && !this.vs) { this.frame++; this.line = 0; this.sawSync = true; } this.vs = on; break; }
       case 2: this.wsync = true; break;
-      case 0x10: this.p0x = this.pos(); break;
-      case 0x11: this.p1x = this.pos(); break;
+      case 0x10: this.p0x = this.pos(5); break;
+      case 0x11: this.p1x = this.pos(5); break;
+      case 0x12: this.m0x = this.pos(4); break;
+      case 0x13: this.m1x = this.pos(4); break;
+      case 0x14: this.blx = this.pos(4); break;
+      case 0x1B: this.gp0n = v; this.gp1o = this.gp1n; break;
+      case 0x1C: this.gp1n = v; this.gp0o = this.gp0n; this.blo = this.reg[0x1F] & 2; break;
+      case 0x2A: {
+        const mv = h => ((h >> 4) ^ 8) - 8;
+        this.p0x = (this.p0x - mv(this.reg[0x20]) + 160) % 160;
+        this.p1x = (this.p1x - mv(this.reg[0x21]) + 160) % 160;
+        this.m0x = (this.m0x - mv(this.reg[0x22]) + 160) % 160;
+        this.m1x = (this.m1x - mv(this.reg[0x23]) + 160) % 160;
+        this.blx = (this.blx - mv(this.reg[0x24]) + 160) % 160;
+        if (this.hpos < 76) this.hmb = true;   /* HMOVE during horizontal blank blanks the first 8 pixels */
+        break;
+      }
+      case 0x2B: for (let i = 0x20; i <= 0x24; i++) this.reg[i] = 0; break;
+      case 0x2C: this.cx.fill(0); break;
     }
   }
-  pos() { const h = this.hpos; return h < 68 ? 3 : (h - 68 + 5) % 160; }
+  /* Horizontal position that a RESxx strobe at the current colour clock produces. `d` is the object's latency. */
+  pos(d) { const h = this.hpos; return h < 68 ? d - 2 : (h - 68 + d) % 160; }
   read(a) {
     a &= 0x0F;
+    if (a < 8) { const c = this.cx[a]; return c; }
     if (a === 0x0C) return this.fire ? 0x00 : 0x80;
-    if (a === 0x0D) return 0x80;
+    if (a === 0x0D) return this.fire1 ? 0x00 : 0x80;
     if (a >= 8 && a <= 0x0B) return 0x80;
     return 0;
   }
@@ -240,19 +262,21 @@ class TIA {
   clock() {
     const h = this.hpos;
     if (h >= 68) {
-      const y = this.line - 40, x = h - 68;
-      if (y >= 0 && y < 192) this.fb[y * 160 + x] = (this.reg[1] & 2) ? 0xFF000000 : PALETTE[this.pixel(x)];
+      const x = h - 68, y = this.line - 40;
+      const c = this.pixel(x);
+      if (y >= 0 && y < 192) this.fb[y * 160 + x] = ((this.reg[1] & 2) || (this.hmb && x < 8)) ? 0xFF000000 : PALETTE[c];
     }
     if (++this.hpos >= 228) {
-      this.hpos = 0; this.line++;
+      this.hpos = 0; this.line++; this.hmb = false;
       if (this.line >= 262) { this.line = 0; if (!this.sawSync) this.frame++; this.sawSync = false; }
       if (this.line === 232) this.dirty = true;
     }
   }
   playerHit(x, px, grp, nusiz, refl) {
+    if (!grp) return false;
     const n = NUSIZ[nusiz & 7];
     for (const off of n.c) {
-      let dx = (x - px - off + 160) % 160;
+      const dx = (x - px - off + 160) % 160;
       const w = 8 * n.s;
       if (dx < w) {
         const bit = (dx / n.s) | 0;
@@ -272,13 +296,31 @@ class TIA {
     let idx = x >> 2, pf;
     if (idx < 20) pf = this.pfBit(idx);
     else pf = (r[0x0A] & 1) ? this.pfBit(39 - idx) : this.pfBit(idx - 20);
-    const p0 = this.playerHit(x, this.p0x, r[0x1B], r[4], r[0x0B] & 8);
-    const p1 = this.playerHit(x, this.p1x, r[0x1C], r[5], r[0x0C] & 8);
+    const g0 = (r[0x25] & 1) ? this.gp0o : this.gp0n, g1 = (r[0x26] & 1) ? this.gp1o : this.gp1n;
+    const p0 = this.playerHit(x, this.p0x, g0, r[4], r[0x0B] & 8);
+    const p1 = this.playerHit(x, this.p1x, g1, r[5], r[0x0C] & 8);
+    let m0 = false, m1 = false, bl = false;
+    if (r[0x1D] & 2 && !(r[0x28] & 2)) m0 = ((x - this.m0x + 160) % 160) < (1 << ((r[4] >> 4) & 3));
+    if (r[0x1E] & 2 && !(r[0x29] & 2)) m1 = ((x - this.m1x + 160) % 160) < (1 << ((r[5] >> 4) & 3));
+    if ((r[0x27] & 1) ? this.blo : (r[0x1F] & 2)) bl = ((x - this.blx + 160) % 160) < (1 << ((r[0x0A] >> 4) & 3));
+    /* collision latches, set whenever two objects overlap on a visible clock */
+    const cx = this.cx;
+    if (m0 || m1 || p0 || p1 || bl) {
+      if (m0 && p1) cx[0] |= 0x80; if (m0 && p0) cx[0] |= 0x40;
+      if (m1 && p0) cx[1] |= 0x80; if (m1 && p1) cx[1] |= 0x40;
+      if (p0 && pf) cx[2] |= 0x80; if (p0 && bl) cx[2] |= 0x40;
+      if (p1 && pf) cx[3] |= 0x80; if (p1 && bl) cx[3] |= 0x40;
+      if (m0 && pf) cx[4] |= 0x80; if (m0 && bl) cx[4] |= 0x40;
+      if (m1 && pf) cx[5] |= 0x80; if (m1 && bl) cx[5] |= 0x40;
+      if (bl && pf) cx[6] |= 0x80;
+      if (p0 && p1) cx[7] |= 0x80; if (m0 && m1) cx[7] |= 0x40;
+    }
     const pfc = (r[0x0A] & 2) ? (x < 80 ? r[6] : r[7]) : r[8];
-    if ((r[0x0A] & 4) && pf) return pfc;
-    if (p0) return r[6];
-    if (p1) return r[7];
-    if (pf) return pfc;
+    const top = pf || bl;
+    if ((r[0x0A] & 4) && top) return pfc;
+    if (p0 || m0) return r[6];
+    if (p1 || m1) return r[7];
+    if (top) return pfc;
     return r[9];
   }
 }

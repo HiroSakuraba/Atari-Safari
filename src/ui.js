@@ -26,11 +26,11 @@ const INS_DESC = { LDA: 'Load accumulator', LDX: 'Load X', LDY: 'Load Y', STA: '
 /* ================= scene ================= */
 const REG = {}, updaters = [], INFO = {};
 const gWorld = S('g', null, svg);
-const gFrames = S('g', null, gWorld), gOv = S('g', null, gWorld), gEdges = S('g', null, gWorld), gNodes = S('g', null, gWorld), gLabels = S('g', null, gWorld);
+const gFrames = S('g', null, gWorld), gDie = S('g', { id: 'die' }, gWorld), gOv = S('g', null, gWorld), gEdges = S('g', null, gWorld), gNodes = S('g', null, gWorld), gLabels = S('g', null, gWorld);
 let romVer = 0;
 
 LAY.L.forEach(f => {
-  const g = S('g', { class: 'frame k-' + f.kind, 'data-id': f.id, 'data-view': f.view }, gFrames);
+  const g = S('g', { class: 'frame k-' + f.kind + (f.id === 'f_alu' ? ' cpuel' : ''), 'data-id': f.id, 'data-view': f.view }, gFrames);
   S('rect', { class: 'fb', x: f.x, y: f.y, width: f.w, height: f.h, rx: 18 }, g);
   const br = f.tpos === 'br';
   const t = S('text', br ? { class: 'ft', x: f.x + f.w - 14, y: f.y + f.h - 10, 'text-anchor': 'end', style: 'font-size:22px' } : { class: 'ft', x: f.x + 22, y: f.y + 40 }, g, f.title);
@@ -39,13 +39,84 @@ LAY.L.forEach(f => {
   INFO[f.id] = { label: f.title + ' ' + f.sub, desc: f.desc, kind: f.kind };
 });
 LAY.E.forEach(e => {
-  const g = S('g', { class: 'edge k-' + e.kind + (e.thick ? ' thick' : '') }, gEdges);
+  const g = S('g', { class: 'edge k-' + e.kind + (e.thick ? ' thick' : '') + (e.pts[0][0] < 1400 && e.pts[0][1] < 1100 ? ' cpuel' : '') }, gEdges);
   const d = 'M' + e.pts.map(p => p[0] + ' ' + p[1]).join(' L');
   S('path', { class: 'w', d }, g); S('path', { class: 'g', d }, g); S('path', { class: 'f', d }, g);
-  if (e.label) S('text', { class: 'el', x: e.lx, y: e.ly }, gLabels, e.label);
+  if (e.label) S('text', { class: 'el' + (e.lx < 1400 && e.ly < 1100 ? ' cpuel' : ''), x: e.lx, y: e.ly }, gLabels, e.label);
   REG[e.id] = { el: g };
 });
 LAY.LABELS.forEach(l => S('text', { class: 'el', x: l.x, y: l.y, 'text-anchor': 'end', style: 'font-size:18px;letter-spacing:.08em;text-transform:uppercase;opacity:.8' }, gLabels, l.t));
+
+
+/* ---------- toy die: a simplified floorplan of the 6507, drawn behind the CPU blocks ----------
+   Layout follows a die photo: decode ROM (PLA) band across the top, random control logic below it,
+   then the datapath as vertical bit slices (registers, ALU) with PC/address logic on the right and the
+   bus drivers along the bottom edge. Bond pads and wires ring the edge. All art is original vector work. */
+const DIE = { x: 290, y: 135, w: 840, h: 920 };
+const DIE_REGIONS = [
+  { id: 'pla', x: 50, y: 60, w: 740, h: 150, tex: 'pla', kind: 'ctl', view: 'ctrl', title: 'Decode ROM (PLA)', cap: 'opcode in, control lines out', members: ['dec', 'e_ir_dec'] },
+  { id: 'ctl', x: 95, y: 225, w: 695, h: 235, tex: 'rnd', kind: 'ctl', view: 'ctrl', title: 'Timing and control logic', cap: 'instruction register, cycle counter, flag logic', members: ['ir', 'tim', 'e_dec_tim', 'e_ctl', 'e_db_ir'] },
+  { id: 'regs', x: 95, y: 480, w: 330, h: 340, tex: 'slice', kind: 'data', view: 'regs', title: 'Registers', cap: 'A, X, Y, S and flags, 8 bit slices', members: ['a', 'x', 'y', 's', 'p', 'e_a_sb', 'e_x_sb', 'e_y_sb', 'e_s_sb', 'e_sb'] },
+  { id: 'alu', x: 440, y: 480, w: 240, h: 340, tex: 'slice', kind: 'alu', view: 'alu', title: 'ALU', cap: 'adder, logic, shifter', members: ['ain', 'bin', 'binv', 'logic', 'shift', 'adder', 'res'] },
+  { id: 'pcar', x: 695, y: 480, w: 95, h: 340, tex: 'slice', kind: 'addr', view: 'addr', title: 'PC', cap: '', members: ['pc', 'ar', 'inc', 'e_pc_ar', 'e_pc_inc'], vertical: true },
+  { id: 'buf', x: 95, y: 835, w: 695, h: 62, tex: 'rnd', kind: 'data', view: 'cpu', title: 'Bus drivers', cap: 'data buffer and address pins', members: ['buf', 'e_ar_pin', 'e_data_pin'] }
+];
+const dieRegionEls = [];
+(function buildDie() {
+  const defs = S('defs', null, gDie);
+  const pla = S('pattern', { id: 'pt-pla', width: 9, height: 7, patternUnits: 'userSpaceOnUse' }, defs);
+  S('rect', { class: 'dp', x: 1, y: 0, width: 2, height: 7 }, pla); S('rect', { class: 'dp', x: 5, y: 0, width: 2, height: 7 }, pla); S('rect', { class: 'dp2', x: 0, y: 3, width: 9, height: 1.5 }, pla);
+  const sl = S('pattern', { id: 'pt-slice', width: 13, height: 9, patternUnits: 'userSpaceOnUse' }, defs);
+  S('rect', { class: 'dp', x: 1, y: 0, width: 4, height: 9 }, sl); S('rect', { class: 'dp2', x: 7, y: 1, width: 5, height: 3 }, sl); S('rect', { class: 'dp2', x: 7, y: 6, width: 5, height: 2 }, sl);
+  S('rect', { class: 'die-body', x: DIE.x, y: DIE.y, width: DIE.w, height: DIE.h, rx: 10 }, gDie);
+  S('rect', { class: 'die-edge', x: DIE.x + 14, y: DIE.y + 14, width: DIE.w - 28, height: DIE.h - 28, rx: 6 }, gDie);
+  /* bond pads and wires */
+  const pads = [], wires = [];
+  const padAt = (px, py, dx, dy) => { pads.push('M' + (px - 11) + ' ' + (py - 11) + 'h22v22h-22z'); wires.push('M' + px + ' ' + py + ' Q' + (px + dx * .55) + ' ' + (py + dy * .55 + ((px * 7 + py * 3) % 9 - 4)) + ' ' + (px + dx) + ' ' + (py + dy)); };
+  for (let i = 0; i < 10; i++) { const px = DIE.x + 70 + i * ((DIE.w - 140) / 9); padAt(px, DIE.y + 36, (i - 4.5) * 5, -62); padAt(px, DIE.y + DIE.h - 36, (i - 4.5) * 5, 62); }
+  for (let i = 0; i < 9; i++) { const py = DIE.y + 110 + i * ((DIE.h - 220) / 8); padAt(DIE.x + 36, py, -158 - (i % 3) * 6, (i - 4) * 4); padAt(DIE.x + DIE.w - 36, py, 158 + (i % 3) * 6, (i - 4) * 4); }
+  S('path', { class: 'die-wire', d: wires.join(' ') }, gDie);
+  S('path', { class: 'die-pad', d: pads.join(' ') }, gDie);
+  /* regions */
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  DIE_REGIONS.forEach(r => {
+    const gx = DIE.x + r.x, gy = DIE.y + r.y;
+    const g = S('g', { class: 'dregion k-' + r.kind, 'data-view': r.view, 'data-id': 'die_' + r.id }, gDie);
+    S('rect', { class: 'dr-b', x: gx, y: gy, width: r.w, height: r.h, rx: 6 }, g);
+    if (r.tex === 'rnd') {
+      let d = ''; const n = Math.round(r.w * r.h / 170);
+      for (let i = 0; i < n; i++) { const w = 3 + rnd() * 16 | 0, h = 2 + rnd() * 6 | 0; d += 'M' + (gx + 6 + rnd() * (r.w - 12 - w) | 0) + ' ' + (gy + 6 + rnd() * (r.h - 12 - h) | 0) + 'h' + w + 'v' + h + 'h-' + w + 'z'; }
+      for (let i = 0; i < r.h / 9; i++) { const y = gy + 6 + i * 9; d += 'M' + (gx + 4) + ' ' + y + 'h' + (r.w - 8) * (.4 + rnd() * .6) + 'v1.4h-' + (r.w - 8) + 'z'; }
+      S('path', { class: 'dp3', d }, g);
+    } else S('rect', { class: 'dr-t', x: gx + 4, y: gy + 4, width: r.w - 8, height: r.h - 8, fill: 'url(#pt-' + r.tex + ')' }, g);
+    const t = S('text', r.vertical ? { class: 'dr-l', x: gx + r.w / 2, y: gy + 22, 'text-anchor': 'middle', style: 'font-size:24px' } : { class: 'dr-l', x: gx + 14, y: gy + 30 }, g, r.title);
+    if (r.cap) S('text', { class: 'dr-c', x: gx + 14, y: gy + 52 }, g, r.cap);
+    if (r.tex === 'slice' && !r.vertical) for (let b = 0; b < 8; b++) S('text', { class: 'dr-c', x: gx + 18 + b * ((r.w - 30) / 8), y: gy + r.h - 12 }, g, 'b' + b);
+    dieRegionEls.push({ el: g, members: r.members, h: 0 });
+    REG['die_' + r.id] = { el: g };
+    INFO['die_' + r.id] = { label: r.title, desc: r.title + ': ' + (r.cap || 'the program counter and address low/high logic') + '. Zoom in to see how this part of the chip is wired.', kind: r.kind };
+  });
+  /* metal routing: thin orthogonal traces over the control logic, like the upper layers on the photo */
+  let md = '';
+  for (const r of DIE_REGIONS.filter(q => q.id === 'ctl' || q.id === 'buf')) {
+    const gx = DIE.x + r.x, gy = DIE.y + r.y;
+    for (let i = 0; i < r.h / 7; i++) { let x = gx + 3, y = gy + 4 + i * 7; md += 'M' + x + ' ' + y; while (x < gx + r.w - 10) { const l = 20 + rnd() * 90 | 0; x = Math.min(gx + r.w - 4, x + l); md += 'H' + x; if (rnd() < .3) { y += rnd() < .5 ? -7 : 7; md += 'V' + Math.max(gy + 3, Math.min(gy + r.h - 3, y)); } } }
+    for (let i = 0; i < r.w / 24; i++) { const x = gx + 6 + i * 24 + rnd() * 10, y0 = gy + 4 + rnd() * r.h * .6; md += 'M' + x + ' ' + y0 + 'v' + (10 + rnd() * r.h * .4); }
+  }
+  S('path', { class: 'die-metal', d: md }, gDie);
+  /* die markings, as on the real chip: the part number in an etched box and a numeric ruler */
+  const mk = S('g', { class: 'die-mark' }, gDie);
+  S('rect', { x: DIE.x + DIE.w - 250, y: DIE.y + 60 - 44, width: 200, height: 40, rx: 6, class: 'mk-b' }, mk);
+  S('text', { x: DIE.x + DIE.w - 150, y: DIE.y + 60 - 14, 'text-anchor': 'middle', class: 'mk-t' }, mk, '6507\u00b7D');
+  S('text', { x: DIE.x + 40, y: DIE.y + DIE.h - 52, class: 'mk-r' }, mk, '3 4 5 6 7');
+  S('text', { class: 'dr-c', x: DIE.x + DIE.w / 2, y: DIE.y + DIE.h + 26, 'text-anchor': 'middle' }, gDie, 'Toy floorplan of the 6507 die. The real one has about 3,500 transistors.');
+})();
+function dieHeat() {
+  for (const r of dieRegionEls) {
+    let h = 0; for (const id of r.members) { const q = REG[id]; if (q && q.h > h) h = q.h; }
+    if (Math.abs(h - r.h) > 0.02 || (h === 0 && r.h !== 0)) { r.h = h; r.el.style.setProperty('--h', h.toFixed(2)); r.el.classList.toggle('lit', h > 0.05); }
+  }
+}
 
 const BUILD = {
   dec(g, n) {
@@ -163,7 +234,7 @@ const BUILD = {
 };
 const fmtVal = (v, f) => v === undefined || v === null ? '' : f === 'h2' ? '$' + hex2(v) : f === 'h4' ? '$' + hex4(v) : String(v);
 LAY.N.forEach(n => {
-  const g = S('g', { class: 'node k-' + n.kind, 'data-id': n.id, 'data-view': n.view }, gNodes);
+  const g = S('g', { class: 'node k-' + n.kind + (n.x < 1400 && n.y < 1100 ? ' cpuel' : ''), 'data-id': n.id, 'data-view': n.view }, gNodes);
   S('rect', { class: 'nb', x: n.x, y: n.y, width: n.w, height: n.h, rx: 8 }, g);
   S('text', { class: 'nl', x: n.x + 14, y: n.y + 30 }, g, n.label);
   if (n.sub && !n.custom) {
@@ -204,9 +275,10 @@ function updateLights(now, dt) {
     else { h = Math.max(0, 1 - (now - t.end) / FADE); if (h === 0) active.delete(id); }
     setHeat(r, h);
   }
+  dieHeat();
 }
 function releaseLights(now) { for (const id of active) if (T[id].end > now) T[id].end = now; }
-function clearLights() { active.clear(); for (const id in REG) { const r = REG[id]; if (r.h) setHeat(r, 0); } }
+function clearLights() { active.clear(); for (const id in REG) { const r = REG[id]; if (r.h) setHeat(r, 0); } dieHeat(); }
 
 /* ================= camera ================= */
 let cam = { cx: 1200, cy: 750, w: 2400 }, tw = null, curView = 'sys', viewLocked = true;
@@ -215,6 +287,8 @@ function lod(s) {
   svg.style.setProperty('--ov', clamp((0.52 - s) / 0.16, 0, 1).toFixed(3));
   svg.style.setProperty('--d1', clamp((s - 0.16) / 0.12, 0, 1).toFixed(3));
   svg.style.setProperty('--d2', clamp((s - 0.34) / 0.2, 0, 1).toFixed(3));
+  const dm = svg.dataset.die, da = dm === 'on' ? 1 : dm === 'off' ? 0 : clamp((0.95 - s) / 0.3, 0, 1);
+  svg.style.setProperty('--diea', da.toFixed(3));
 }
 function applyCam() {
   const z = svgSize(), h = cam.w * z.h / z.w;
@@ -247,7 +321,12 @@ const crumbs = $('#crumbs');
   b.addEventListener('click', () => { flyTo(k); dismissHint(); });
   crumbs.appendChild(b);
 });
-function markCrumb(k) { viewLocked = !!k; crumbs.querySelectorAll('button').forEach(b => b.setAttribute('aria-current', b.dataset.view === k ? 'true' : 'false')); }
+const dieBtn = document.createElement('button'); dieBtn.type = 'button'; dieBtn.id = 'dieBtn'; dieBtn.className = 'dietoggle';
+const DIE_MODES = ['auto', 'on', 'off'], DIE_TXT = { auto: 'Die: auto', on: 'Die: shown', off: 'Die: hidden' };
+function setDieMode(m) { svg.dataset.die = m; dieBtn.textContent = DIE_TXT[m]; dieBtn.dataset.mode = m; applyCam(); }
+dieBtn.addEventListener('click', () => setDieMode(DIE_MODES[(DIE_MODES.indexOf(svg.dataset.die || 'auto') + 1) % 3]));
+crumbs.appendChild(dieBtn); dieBtn.textContent = DIE_TXT.auto;
+function markCrumb(k) { viewLocked = !!k; crumbs.querySelectorAll('button[data-view]').forEach(b => b.setAttribute('aria-current', b.dataset.view === k ? 'true' : 'false')); }
 
 const ptrs = new Map(); let moved = 0, lastPinch = 0;
 function dismissHint() { $('#hint').classList.add('gone'); }
@@ -544,5 +623,5 @@ showDefaultPart();
 renderNow();
 applyCam(); flyTo('sys', true);
 requestAnimationFrame(frame);
-window.__explorer = { M, disp, get cur() { return cur; }, get mode() { return mode; }, flyTo, REG, T, setLevel };
+window.__explorer = { setDieMode, M, disp, get cur() { return cur; }, get mode() { return mode; }, flyTo, REG, T, setLevel };
 })();

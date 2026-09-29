@@ -16,6 +16,10 @@ An interactive simulator of the original Atari 2600 chipset. Run a program and w
 - Draws the picture the TIA produces on a small TV, with the electron beam shown as a dot.
 - Includes a small assembler, so you can edit a program and reload it.
 
+The CPU view is drawn as a toy floorplan of the 6507 die: the decode ROM band across the top, random control logic below it, the datapath as vertical bit slices with the registers, ALU and program counter, and bond pads round the edge. Regions glow as their parts work. Zoom in and the die fades into the block schematic; the **Die** button pins either view. The art is original vector work, not a photograph.
+
+![The 6507 as a toy die floorplan, regions glowing while LDA #$55 runs.](docs/die.png)
+
 Colour is a signal: amber wires carry addresses, teal wires carry data, pink wires are control, green wires are inside the ALU, and violet marks the peripheral chips.
 
 | Overview | ALU | TIA and picture |
