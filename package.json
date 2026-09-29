@@ -1,0 +1,19 @@
+{
+  "name": "atari-safari",
+  "version": "0.1.0",
+  "description": "An interactive Atari 2600 chipset simulator: watch the 6507, TIA and RIOT light up as instructions run.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "node tools/build.js",
+    "test": "node test/emulator.test.js && node test/wiring.test.js",
+    "test:dom": "npm run build && node test/dom.test.js",
+    "test:all": "npm test && npm run test:dom"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.1"
+  }
+}

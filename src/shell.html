@@ -1,0 +1,202 @@
+<title>Atari Safari</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout concept: a working bench. The schematic is the workpiece and fills the left; notes, registers and the TV sit in a rail on the right.
+   Colour is used as signal: amber = address, teal = data, pink = control, green = ALU, violet = peripheral chips. */
+:root {
+  --bg: #e6e9e2; --panel: #f4f5f0; --raise: #ffffff; --ink: #16201d; --mute: #56645f; --line: #c2cac0;
+  --wire: #b5beb4; --node: #f9faf6; --nstroke: #93a096;
+  --addr: #b46a00; --data: #007a73; --ctl: #b8195a; --alu: #467f00; --chip: #4640c0;
+  --flow: #ffffff; --onprimary: #ffffff; --sel: #16201d;
+  --f-disp: "Chakra Petch", "Arial Narrow", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #090f0e; --panel: #101917; --raise: #16221f; --ink: #e2ece8; --mute: #8aa097; --line: #223430;
+    --wire: #263834; --node: #121d1a; --nstroke: #34483f;
+    --addr: #ffb423; --data: #35e0d2; --ctl: #ff5f9f; --alu: #a4ec55; --chip: #a3adff;
+    --flow: #ffffff; --onprimary: #1a1000; --sel: #e2ece8; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #090f0e; --panel: #101917; --raise: #16221f; --ink: #e2ece8; --mute: #8aa097; --line: #223430;
+  --wire: #263834; --node: #121d1a; --nstroke: #34483f;
+  --addr: #ffb423; --data: #35e0d2; --ctl: #ff5f9f; --alu: #a4ec55; --chip: #a3adff;
+  --flow: #ffffff; --onprimary: #1a1000; --sel: #e2ece8; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); -webkit-text-size-adjust: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+#app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 410px); grid-template-rows: auto minmax(0, 1fr); gap: 12px 16px; padding: 12px 16px; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; min-width: 0; }
+.top h1 { font: 700 20px/1 var(--f-disp); letter-spacing: .04em; text-transform: uppercase; margin: 0; white-space: nowrap; }
+.top h1 span { color: var(--addr); }
+.crumbs { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding-bottom: 2px; scrollbar-width: thin; flex: 1 1 320px; }
+.crumbs button { flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 12px; font: 500 13px var(--f-disp); letter-spacing: .03em; cursor: pointer; }
+.crumbs button:hover { border-color: var(--mute); }
+.crumbs button[aria-current="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.left { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+.stage-wrap { position: relative; flex: 1 1 auto; min-height: 320px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--bg);
+  background-image: radial-gradient(color-mix(in srgb, var(--mute) 22%, transparent) 1px, transparent 1.2px); background-size: 22px 22px; }
+#stage { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+#stage.drag { cursor: grabbing; }
+.zoomctl { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.zoomctl button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font: 600 18px var(--f-mono); cursor: pointer; line-height: 1; }
+.legend { position: absolute; left: 10px; top: 10px; display: flex; gap: 12px; flex-wrap: wrap; font: 500 12px var(--f-disp); letter-spacing: .04em; text-transform: uppercase; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); padding: 5px 10px; border-radius: 999px; max-width: calc(100% - 70px); }
+.legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.tip { position: absolute; left: 10px; bottom: 10px; max-width: min(520px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .15s; }
+.tip.on { opacity: 1; }
+.tip b { font: 600 14px var(--f-disp); letter-spacing: .03em; }
+.hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); font: 500 12px var(--f-disp); letter-spacing: .05em; text-transform: uppercase; color: var(--mute); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); padding: 5px 12px; border-radius: 999px; white-space: nowrap; pointer-events: none; transition: opacity .6s; }
+.hint.gone { opacity: 0; }
+
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.tbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--raise); border-radius: 10px; padding: 8px 14px; font: 600 14px var(--f-disp); letter-spacing: .03em; cursor: pointer; min-height: 40px; }
+.btn:hover { border-color: var(--mute); }
+.btn:focus-visible, .crumbs button:focus-visible, .zoomctl button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--chip); outline-offset: 2px; }
+.btn.primary { background: var(--addr); border-color: var(--addr); color: var(--onprimary); }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+.speed { display: flex; align-items: center; gap: 10px; font: 500 13px var(--f-disp); letter-spacing: .03em; flex: 1 1 260px; min-width: 0; }
+.speed input[type=range] { flex: 1 1 100px; min-width: 80px; accent-color: var(--addr); }
+.speed output { min-width: 84px; font-family: var(--f-mono); font-size: 12px; color: var(--mute); }
+.chk { display: flex; align-items: center; gap: 8px; font: 500 13px var(--f-disp); letter-spacing: .03em; }
+.chk input { accent-color: var(--addr); width: 16px; height: 16px; }
+
+.side { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; overflow-y: auto; padding-right: 2px; }
+.card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 12px 14px; min-width: 0; }
+.card h2 { font: 600 12px var(--f-disp); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 8px; }
+.ins { font: 600 20px/1.2 var(--f-mono); display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.ins small { font: 500 13px var(--f-body); color: var(--mute); }
+.steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; counter-reset: s; }
+.steps li { position: relative; padding: 6px 8px 6px 34px; border-radius: 8px; font-size: 13px; color: var(--mute); counter-increment: s; }
+.steps li::before { content: counter(s); position: absolute; left: 8px; top: 6px; width: 18px; height: 18px; border-radius: 50%; background: var(--line); color: var(--ink); font: 600 11px/18px var(--f-mono); text-align: center; }
+.steps li.done { color: var(--ink); }
+.steps li.cur { background: color-mix(in srgb, var(--addr) 16%, var(--panel)); color: var(--ink); }
+.steps li.cur::before { background: var(--addr); color: var(--onprimary); }
+.empty { color: var(--mute); margin: 0; }
+.regs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.reg { background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.reg span { display: block; font: 500 11px var(--f-disp); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
+.reg b { font: 600 17px var(--f-mono); font-variant-numeric: tabular-nums; }
+.flagrow { display: flex; gap: 4px; margin-top: 8px; }
+.flagrow i { flex: 1; text-align: center; font: 600 12px/22px var(--f-mono); border-radius: 6px; border: 1px solid var(--line); color: var(--mute); font-style: normal; }
+.flagrow i.on { background: var(--data); border-color: var(--data); color: var(--onprimary); }
+.tv { position: relative; margin-top: 12px; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.tv canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.beam { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #000, 0 0 10px 3px #fff; pointer-events: none; }
+.tvnote { font-size: 12px; color: var(--mute); margin: 8px 0 0; }
+.part h3 { margin: 0 0 4px; font: 600 17px var(--f-disp); letter-spacing: .02em; }
+.part p { margin: 0; }
+.chipk { display: inline-block; font: 600 11px var(--f-disp); letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; margin-bottom: 8px; }
+details.prog summary { cursor: pointer; font: 600 12px var(--f-disp); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); list-style: none; display: flex; justify-content: space-between; }
+details.prog summary::after { content: "+"; font-family: var(--f-mono); }
+details.prog[open] summary::after { content: "\2212"; }
+.prog .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; align-items: center; }
+.prog select { flex: 1 1 160px; min-width: 0; background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 40px; }
+.prog textarea { width: 100%; min-height: 260px; resize: vertical; background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 13px/1.5 var(--f-mono); tab-size: 8; white-space: pre; overflow: auto; }
+.prog .blurb { margin: 0 0 6px; color: var(--mute); font-size: 13px; }
+.err { color: var(--ctl); font: 500 13px var(--f-mono); margin: 6px 0 0; white-space: pre-wrap; }
+.listing { margin-top: 10px; max-height: 240px; overflow: auto; font: 12px/1.6 var(--f-mono); border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
+.listing div { display: grid; grid-template-columns: 52px 78px 1fr; gap: 8px; padding: 0 10px; white-space: pre; }
+.listing div.cur { background: color-mix(in srgb, var(--addr) 20%, transparent); }
+.listing .a { color: var(--mute); }
+.listing .b { color: var(--data); }
+
+/* schematic */
+#stage text { font-family: var(--f-disp); }
+.frame .fb { fill: color-mix(in srgb, var(--panel) 62%, transparent); stroke: color-mix(in srgb, var(--kc, var(--chip)) calc(var(--h, 0) * 100%), var(--nstroke)); stroke-width: 3.5; }
+.frame { cursor: pointer; }
+.frame .ft { font: 700 28px var(--f-disp); letter-spacing: .06em; fill: var(--ink); }
+.frame .fs { font: 500 20px var(--f-disp); letter-spacing: .04em; fill: var(--mute); }
+.edge { pointer-events: none; }
+.edge .w { fill: none; stroke: var(--wire); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+.edge.thick .w { stroke-width: 7; }
+.edge .g { fill: none; stroke: var(--kc); stroke-width: 7; stroke-linejoin: round; stroke-linecap: round; opacity: var(--h, 0); }
+.edge.thick .g { stroke-width: 9; }
+.edge .f { fill: none; stroke: var(--flow); stroke-width: 3; stroke-dasharray: 10 20; stroke-linecap: round; stroke-linejoin: round; opacity: calc(var(--h, 0) * .85); animation: flow .55s linear infinite; }
+.edge.rev .f { animation-direction: reverse; }
+@keyframes flow { to { stroke-dashoffset: -30; } }
+.edge.lit .g { filter: drop-shadow(0 0 5px var(--kc)); }
+.k-addr { --kc: var(--addr); } .k-data { --kc: var(--data); } .k-ctl { --kc: var(--ctl); } .k-alu { --kc: var(--alu); } .k-chip { --kc: var(--chip); }
+.node { cursor: pointer; }
+.node .nb { fill: color-mix(in srgb, var(--kc) calc(var(--h, 0) * 24%), var(--node)); stroke: color-mix(in srgb, var(--kc) calc(30% + var(--h, 0) * 70%), var(--nstroke)); stroke-width: 3; }
+.node.lit { filter: drop-shadow(0 0 9px color-mix(in srgb, var(--kc) 65%, transparent)); }
+.node.sel .nb, .frame.sel .fb { stroke: var(--sel); stroke-width: 5; stroke-dasharray: 14 8; }
+.nl { font: 600 24px var(--f-disp); letter-spacing: .02em; fill: var(--ink); }
+.ns { font: 400 17px var(--f-body); fill: var(--mute); }
+.nv { font: 600 34px var(--f-mono); fill: var(--ink); }
+.nv.top { font-size: 26px; }
+.sm { font: 500 15px var(--f-mono); fill: var(--mute); }
+.smv { font: 600 20px var(--f-mono); fill: var(--ink); }
+.cellb { fill: color-mix(in srgb, var(--kc) calc(var(--h, 0) * 45%), var(--node)); stroke: color-mix(in srgb, var(--kc) calc(30% + var(--h, 0) * 70%), var(--nstroke)); stroke-width: 2; }
+.d1 { opacity: var(--d1, 1); }
+.d2 { opacity: var(--d2, 0); }
+.el { font: 600 20px var(--f-mono); fill: var(--mute); pointer-events: none; }
+.flg { fill: var(--node); stroke: var(--nstroke); stroke-width: 2; }
+.flg.on { fill: var(--data); stroke: var(--data); }
+.flt { font: 600 17px var(--f-mono); fill: var(--mute); text-anchor: middle; }
+.flt.on { fill: var(--onprimary); }
+.pip { fill: var(--node); stroke: var(--nstroke); stroke-width: 2.5; }
+.pip.done { fill: color-mix(in srgb, var(--ctl) 45%, var(--node)); stroke: var(--ctl); }
+.pip.now { fill: var(--ctl); stroke: var(--ctl); }
+.bigmn { font: 700 46px var(--f-mono); fill: var(--ink); }
+.romcur { fill: color-mix(in srgb, var(--kc) calc(15% + var(--h, 0) * 70%), transparent); stroke: var(--chip); stroke-width: 2.5; }
+.pill { fill: var(--node); stroke: var(--nstroke); stroke-width: 2; }
+
+@media (max-width: 900px) {
+  #app { display: block; height: auto; min-height: 100%; padding: 10px 16px 24px; }
+  .top { margin-bottom: 10px; }
+  .stage-wrap { height: 62vh; min-height: 320px; flex: none; }
+  .left { gap: 10px; }
+  .side { overflow: visible; margin-top: 12px; }
+  .legend { display: none; }
+  .hint { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .edge .f { animation: none; } }
+</style>
+<div id="app">
+  <header class="top">
+    <h1>Atari <span>Safari</span></h1>
+    <nav class="crumbs" id="crumbs" aria-label="Zoom to a part"></nav>
+  </header>
+  <div class="left">
+    <div class="stage-wrap">
+      <svg id="stage" role="img" aria-label="Schematic of the Atari 2600 CPU, TIA video chip, RIOT and cartridge. Wires light up as each instruction executes." xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="legend" aria-hidden="true"><span><i style="background:var(--addr)"></i>address</span><span><i style="background:var(--data)"></i>data</span><span><i style="background:var(--ctl)"></i>control</span><span><i style="background:var(--alu)"></i>ALU</span></div>
+      <div class="zoomctl"><button id="zIn" aria-label="Zoom in">+</button><button id="zOut" aria-label="Zoom out">&minus;</button><button id="zFit" aria-label="Fit whole system" style="font-size:12px">FIT</button></div>
+      <div class="tip" id="tip"></div>
+      <div class="hint" id="hint">Tap a block to zoom in. Drag to pan.</div>
+    </div>
+    <div class="transport">
+      <div class="tbtns">
+        <button class="btn primary" id="bRun"></button>
+        <button class="btn" id="bStep"></button>
+        <button class="btn" id="bMicro"></button>
+        <button class="btn" id="bReset"></button>
+      </div>
+      <label class="speed" for="speed">Speed <input type="range" id="speed" min="0" max="4" step="1" value="1"><output id="speedOut" for="speed"></output></label>
+      <label class="chk" for="follow"><input type="checkbox" id="follow"> Follow the action</label>
+    </div>
+  </div>
+  <aside class="side">
+    <section class="card" aria-live="polite"><h2>Now executing</h2><div id="now"></div></section>
+    <section class="card"><h2>Machine state</h2>
+      <div class="regs" id="regs"></div><div class="flagrow" id="flagrow"></div>
+      <div class="tv"><canvas id="tv" width="160" height="192" aria-label="Television picture drawn by the TIA"></canvas><div class="beam" id="beam"></div></div>
+      <p class="tvnote" id="tvnote">TV output. The white dot is the electron beam.</p>
+    </section>
+    <section class="card part" id="part"></section>
+    <section class="card"><details class="prog" id="progd"><summary>Program</summary>
+      <div class="row"><select id="demoSel" aria-label="Choose a demo program"></select><button class="btn" id="bAsm">Assemble and reset</button></div>
+      <p class="blurb" id="blurb"></p>
+      <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Assembly source"></textarea>
+      <div class="err" id="err"></div>
+      <div class="listing" id="listing" aria-label="Assembled listing"></div>
+    </details></section>
+  </aside>
+</div>

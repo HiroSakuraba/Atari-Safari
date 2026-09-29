@@ -1,0 +1,2028 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="An interactive Atari 2600 chipset simulator. Watch the 6507 CPU, TIA and RIOT light up as instructions run, and zoom into the ALU, registers and adder.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%23101917%22%2F%3E%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%2214%22%20height%3D%2214%22%20rx%3D%222%22%20fill%3D%22none%22%20stroke%3D%22%23ffb423%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M13%205v4M19%205v4M13%2023v4M19%2023v4M5%2013h4M5%2019h4M23%2013h4M23%2019h4%22%20stroke%3D%22%2335e0d2%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E">
+<title>Atari Safari</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout concept: a working bench. The schematic is the workpiece and fills the left; notes, registers and the TV sit in a rail on the right.
+   Colour is used as signal: amber = address, teal = data, pink = control, green = ALU, violet = peripheral chips. */
+:root {
+  --bg: #e6e9e2; --panel: #f4f5f0; --raise: #ffffff; --ink: #16201d; --mute: #56645f; --line: #c2cac0;
+  --wire: #b5beb4; --node: #f9faf6; --nstroke: #93a096;
+  --addr: #b46a00; --data: #007a73; --ctl: #b8195a; --alu: #467f00; --chip: #4640c0;
+  --flow: #ffffff; --onprimary: #ffffff; --sel: #16201d;
+  --f-disp: "Chakra Petch", "Arial Narrow", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #090f0e; --panel: #101917; --raise: #16221f; --ink: #e2ece8; --mute: #8aa097; --line: #223430;
+    --wire: #263834; --node: #121d1a; --nstroke: #34483f;
+    --addr: #ffb423; --data: #35e0d2; --ctl: #ff5f9f; --alu: #a4ec55; --chip: #a3adff;
+    --flow: #ffffff; --onprimary: #1a1000; --sel: #e2ece8; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #090f0e; --panel: #101917; --raise: #16221f; --ink: #e2ece8; --mute: #8aa097; --line: #223430;
+  --wire: #263834; --node: #121d1a; --nstroke: #34483f;
+  --addr: #ffb423; --data: #35e0d2; --ctl: #ff5f9f; --alu: #a4ec55; --chip: #a3adff;
+  --flow: #ffffff; --onprimary: #1a1000; --sel: #e2ece8; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); -webkit-text-size-adjust: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+#app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 410px); grid-template-rows: auto minmax(0, 1fr); gap: 12px 16px; padding: 12px 16px; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; min-width: 0; }
+.top h1 { font: 700 20px/1 var(--f-disp); letter-spacing: .04em; text-transform: uppercase; margin: 0; white-space: nowrap; }
+.top h1 span { color: var(--addr); }
+.crumbs { display: flex; gap: 6px; overflow-x: auto; min-width: 0; padding-bottom: 2px; scrollbar-width: thin; flex: 1 1 320px; }
+.crumbs button { flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 12px; font: 500 13px var(--f-disp); letter-spacing: .03em; cursor: pointer; }
+.crumbs button:hover { border-color: var(--mute); }
+.crumbs button[aria-current="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.left { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+.stage-wrap { position: relative; flex: 1 1 auto; min-height: 320px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--bg);
+  background-image: radial-gradient(color-mix(in srgb, var(--mute) 22%, transparent) 1px, transparent 1.2px); background-size: 22px 22px; }
+#stage { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+#stage.drag { cursor: grabbing; }
+.zoomctl { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.zoomctl button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font: 600 18px var(--f-mono); cursor: pointer; line-height: 1; }
+.legend { position: absolute; left: 10px; top: 10px; display: flex; gap: 12px; flex-wrap: wrap; font: 500 12px var(--f-disp); letter-spacing: .04em; text-transform: uppercase; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); padding: 5px 10px; border-radius: 999px; max-width: calc(100% - 70px); }
+.legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.tip { position: absolute; left: 10px; bottom: 10px; max-width: min(520px, calc(100% - 20px)); background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .15s; }
+.tip.on { opacity: 1; }
+.tip b { font: 600 14px var(--f-disp); letter-spacing: .03em; }
+.hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); font: 500 12px var(--f-disp); letter-spacing: .05em; text-transform: uppercase; color: var(--mute); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); padding: 5px 12px; border-radius: 999px; white-space: nowrap; pointer-events: none; transition: opacity .6s; }
+.hint.gone { opacity: 0; }
+
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.tbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--raise); border-radius: 10px; padding: 8px 14px; font: 600 14px var(--f-disp); letter-spacing: .03em; cursor: pointer; min-height: 40px; }
+.btn:hover { border-color: var(--mute); }
+.btn:focus-visible, .crumbs button:focus-visible, .zoomctl button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--chip); outline-offset: 2px; }
+.btn.primary { background: var(--addr); border-color: var(--addr); color: var(--onprimary); }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+.speed { display: flex; align-items: center; gap: 10px; font: 500 13px var(--f-disp); letter-spacing: .03em; flex: 1 1 260px; min-width: 0; }
+.speed input[type=range] { flex: 1 1 100px; min-width: 80px; accent-color: var(--addr); }
+.speed output { min-width: 84px; font-family: var(--f-mono); font-size: 12px; color: var(--mute); }
+.chk { display: flex; align-items: center; gap: 8px; font: 500 13px var(--f-disp); letter-spacing: .03em; }
+.chk input { accent-color: var(--addr); width: 16px; height: 16px; }
+
+.side { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; overflow-y: auto; padding-right: 2px; }
+.card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 12px 14px; min-width: 0; }
+.card h2 { font: 600 12px var(--f-disp); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 8px; }
+.ins { font: 600 20px/1.2 var(--f-mono); display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.ins small { font: 500 13px var(--f-body); color: var(--mute); }
+.steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; counter-reset: s; }
+.steps li { position: relative; padding: 6px 8px 6px 34px; border-radius: 8px; font-size: 13px; color: var(--mute); counter-increment: s; }
+.steps li::before { content: counter(s); position: absolute; left: 8px; top: 6px; width: 18px; height: 18px; border-radius: 50%; background: var(--line); color: var(--ink); font: 600 11px/18px var(--f-mono); text-align: center; }
+.steps li.done { color: var(--ink); }
+.steps li.cur { background: color-mix(in srgb, var(--addr) 16%, var(--panel)); color: var(--ink); }
+.steps li.cur::before { background: var(--addr); color: var(--onprimary); }
+.empty { color: var(--mute); margin: 0; }
+.regs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.reg { background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.reg span { display: block; font: 500 11px var(--f-disp); letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
+.reg b { font: 600 17px var(--f-mono); font-variant-numeric: tabular-nums; }
+.flagrow { display: flex; gap: 4px; margin-top: 8px; }
+.flagrow i { flex: 1; text-align: center; font: 600 12px/22px var(--f-mono); border-radius: 6px; border: 1px solid var(--line); color: var(--mute); font-style: normal; }
+.flagrow i.on { background: var(--data); border-color: var(--data); color: var(--onprimary); }
+.tv { position: relative; margin-top: 12px; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+.tv canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.beam { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #000, 0 0 10px 3px #fff; pointer-events: none; }
+.tvnote { font-size: 12px; color: var(--mute); margin: 8px 0 0; }
+.part h3 { margin: 0 0 4px; font: 600 17px var(--f-disp); letter-spacing: .02em; }
+.part p { margin: 0; }
+.chipk { display: inline-block; font: 600 11px var(--f-disp); letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; margin-bottom: 8px; }
+details.prog summary { cursor: pointer; font: 600 12px var(--f-disp); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); list-style: none; display: flex; justify-content: space-between; }
+details.prog summary::after { content: "+"; font-family: var(--f-mono); }
+details.prog[open] summary::after { content: "\2212"; }
+.prog .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; align-items: center; }
+.prog select { flex: 1 1 160px; min-width: 0; background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 40px; }
+.prog textarea { width: 100%; min-height: 260px; resize: vertical; background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 13px/1.5 var(--f-mono); tab-size: 8; white-space: pre; overflow: auto; }
+.prog .blurb { margin: 0 0 6px; color: var(--mute); font-size: 13px; }
+.err { color: var(--ctl); font: 500 13px var(--f-mono); margin: 6px 0 0; white-space: pre-wrap; }
+.listing { margin-top: 10px; max-height: 240px; overflow: auto; font: 12px/1.6 var(--f-mono); border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
+.listing div { display: grid; grid-template-columns: 52px 78px 1fr; gap: 8px; padding: 0 10px; white-space: pre; }
+.listing div.cur { background: color-mix(in srgb, var(--addr) 20%, transparent); }
+.listing .a { color: var(--mute); }
+.listing .b { color: var(--data); }
+
+/* schematic */
+#stage text { font-family: var(--f-disp); }
+.frame .fb { fill: color-mix(in srgb, var(--panel) 62%, transparent); stroke: color-mix(in srgb, var(--kc, var(--chip)) calc(var(--h, 0) * 100%), var(--nstroke)); stroke-width: 3.5; }
+.frame { cursor: pointer; }
+.frame .ft { font: 700 28px var(--f-disp); letter-spacing: .06em; fill: var(--ink); }
+.frame .fs { font: 500 20px var(--f-disp); letter-spacing: .04em; fill: var(--mute); }
+.edge { pointer-events: none; }
+.edge .w { fill: none; stroke: var(--wire); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+.edge.thick .w { stroke-width: 7; }
+.edge .g { fill: none; stroke: var(--kc); stroke-width: 7; stroke-linejoin: round; stroke-linecap: round; opacity: var(--h, 0); }
+.edge.thick .g { stroke-width: 9; }
+.edge .f { fill: none; stroke: var(--flow); stroke-width: 3; stroke-dasharray: 10 20; stroke-linecap: round; stroke-linejoin: round; opacity: calc(var(--h, 0) * .85); animation: flow .55s linear infinite; }
+.edge.rev .f { animation-direction: reverse; }
+@keyframes flow { to { stroke-dashoffset: -30; } }
+.edge.lit .g { filter: drop-shadow(0 0 5px var(--kc)); }
+.k-addr { --kc: var(--addr); } .k-data { --kc: var(--data); } .k-ctl { --kc: var(--ctl); } .k-alu { --kc: var(--alu); } .k-chip { --kc: var(--chip); }
+.node { cursor: pointer; }
+.node .nb { fill: color-mix(in srgb, var(--kc) calc(var(--h, 0) * 24%), var(--node)); stroke: color-mix(in srgb, var(--kc) calc(30% + var(--h, 0) * 70%), var(--nstroke)); stroke-width: 3; }
+.node.lit { filter: drop-shadow(0 0 9px color-mix(in srgb, var(--kc) 65%, transparent)); }
+.node.sel .nb, .frame.sel .fb { stroke: var(--sel); stroke-width: 5; stroke-dasharray: 14 8; }
+.nl { font: 600 24px var(--f-disp); letter-spacing: .02em; fill: var(--ink); }
+.ns { font: 400 17px var(--f-body); fill: var(--mute); }
+.nv { font: 600 34px var(--f-mono); fill: var(--ink); }
+.nv.top { font-size: 26px; }
+.sm { font: 500 15px var(--f-mono); fill: var(--mute); }
+.smv { font: 600 20px var(--f-mono); fill: var(--ink); }
+.cellb { fill: color-mix(in srgb, var(--kc) calc(var(--h, 0) * 45%), var(--node)); stroke: color-mix(in srgb, var(--kc) calc(30% + var(--h, 0) * 70%), var(--nstroke)); stroke-width: 2; }
+.d1 { opacity: var(--d1, 1); }
+.d2 { opacity: var(--d2, 0); }
+.el { font: 600 20px var(--f-mono); fill: var(--mute); pointer-events: none; }
+.flg { fill: var(--node); stroke: var(--nstroke); stroke-width: 2; }
+.flg.on { fill: var(--data); stroke: var(--data); }
+.flt { font: 600 17px var(--f-mono); fill: var(--mute); text-anchor: middle; }
+.flt.on { fill: var(--onprimary); }
+.pip { fill: var(--node); stroke: var(--nstroke); stroke-width: 2.5; }
+.pip.done { fill: color-mix(in srgb, var(--ctl) 45%, var(--node)); stroke: var(--ctl); }
+.pip.now { fill: var(--ctl); stroke: var(--ctl); }
+.bigmn { font: 700 46px var(--f-mono); fill: var(--ink); }
+.romcur { fill: color-mix(in srgb, var(--kc) calc(15% + var(--h, 0) * 70%), transparent); stroke: var(--chip); stroke-width: 2.5; }
+.pill { fill: var(--node); stroke: var(--nstroke); stroke-width: 2; }
+
+@media (max-width: 900px) {
+  #app { display: block; height: auto; min-height: 100%; padding: 10px 16px 24px; }
+  .top { margin-bottom: 10px; }
+  .stage-wrap { height: 62vh; min-height: 320px; flex: none; }
+  .left { gap: 10px; }
+  .side { overflow: visible; margin-top: 12px; }
+  .legend { display: none; }
+  .hint { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .edge .f { animation: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <h1>Atari <span>Safari</span></h1>
+    <nav class="crumbs" id="crumbs" aria-label="Zoom to a part"></nav>
+  </header>
+  <div class="left">
+    <div class="stage-wrap">
+      <svg id="stage" role="img" aria-label="Schematic of the Atari 2600 CPU, TIA video chip, RIOT and cartridge. Wires light up as each instruction executes." xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="legend" aria-hidden="true"><span><i style="background:var(--addr)"></i>address</span><span><i style="background:var(--data)"></i>data</span><span><i style="background:var(--ctl)"></i>control</span><span><i style="background:var(--alu)"></i>ALU</span></div>
+      <div class="zoomctl"><button id="zIn" aria-label="Zoom in">+</button><button id="zOut" aria-label="Zoom out">&minus;</button><button id="zFit" aria-label="Fit whole system" style="font-size:12px">FIT</button></div>
+      <div class="tip" id="tip"></div>
+      <div class="hint" id="hint">Tap a block to zoom in. Drag to pan.</div>
+    </div>
+    <div class="transport">
+      <div class="tbtns">
+        <button class="btn primary" id="bRun"></button>
+        <button class="btn" id="bStep"></button>
+        <button class="btn" id="bMicro"></button>
+        <button class="btn" id="bReset"></button>
+      </div>
+      <label class="speed" for="speed">Speed <input type="range" id="speed" min="0" max="4" step="1" value="1"><output id="speedOut" for="speed"></output></label>
+      <label class="chk" for="follow"><input type="checkbox" id="follow"> Follow the action</label>
+    </div>
+  </div>
+  <aside class="side">
+    <section class="card" aria-live="polite"><h2>Now executing</h2><div id="now"></div></section>
+    <section class="card"><h2>Machine state</h2>
+      <div class="regs" id="regs"></div><div class="flagrow" id="flagrow"></div>
+      <div class="tv"><canvas id="tv" width="160" height="192" aria-label="Television picture drawn by the TIA"></canvas><div class="beam" id="beam"></div></div>
+      <p class="tvnote" id="tvnote">TV output. The white dot is the electron beam.</p>
+    </section>
+    <section class="card part" id="part"></section>
+    <section class="card"><details class="prog" id="progd"><summary>Program</summary>
+      <div class="row"><select id="demoSel" aria-label="Choose a demo program"></select><button class="btn" id="bAsm">Assemble and reset</button></div>
+      <p class="blurb" id="blurb"></p>
+      <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Assembly source"></textarea>
+      <div class="err" id="err"></div>
+      <div class="listing" id="listing" aria-label="Assembled listing"></div>
+    </details></section>
+  </aside>
+</div>
+<script>
+/* Atari 2600 core: 6507 CPU + TIA (video) + RIOT (6532) + 4K cartridge.
+   The CPU records a datapath trace (this.tr) for the visualiser. */
+(function (root) {
+'use strict';
+
+const FC = 1, FZ = 2, FI = 4, FD = 8, FB = 16, FU = 32, FV = 64, FN = 128;
+
+const MODE_LEN = { imp: 1, acc: 1, imm: 2, zp: 2, zpx: 2, zpy: 2, izx: 2, izy: 2, rel: 2, abs: 3, abx: 3, aby: 3, ind: 3 };
+const DEF = {
+  ADC: { imm: 0x69, zp: 0x65, zpx: 0x75, abs: 0x6D, abx: 0x7D, aby: 0x79, izx: 0x61, izy: 0x71 },
+  AND: { imm: 0x29, zp: 0x25, zpx: 0x35, abs: 0x2D, abx: 0x3D, aby: 0x39, izx: 0x21, izy: 0x31 },
+  ASL: { acc: 0x0A, zp: 0x06, zpx: 0x16, abs: 0x0E, abx: 0x1E },
+  BCC: { rel: 0x90 }, BCS: { rel: 0xB0 }, BEQ: { rel: 0xF0 }, BMI: { rel: 0x30 },
+  BNE: { rel: 0xD0 }, BPL: { rel: 0x10 }, BVC: { rel: 0x50 }, BVS: { rel: 0x70 },
+  BIT: { zp: 0x24, abs: 0x2C },
+  BRK: { imp: 0x00 },
+  CLC: { imp: 0x18 }, CLD: { imp: 0xD8 }, CLI: { imp: 0x58 }, CLV: { imp: 0xB8 },
+  CMP: { imm: 0xC9, zp: 0xC5, zpx: 0xD5, abs: 0xCD, abx: 0xDD, aby: 0xD9, izx: 0xC1, izy: 0xD1 },
+  CPX: { imm: 0xE0, zp: 0xE4, abs: 0xEC },
+  CPY: { imm: 0xC0, zp: 0xC4, abs: 0xCC },
+  DEC: { zp: 0xC6, zpx: 0xD6, abs: 0xCE, abx: 0xDE },
+  DEX: { imp: 0xCA }, DEY: { imp: 0x88 },
+  EOR: { imm: 0x49, zp: 0x45, zpx: 0x55, abs: 0x4D, abx: 0x5D, aby: 0x59, izx: 0x41, izy: 0x51 },
+  INC: { zp: 0xE6, zpx: 0xF6, abs: 0xEE, abx: 0xFE },
+  INX: { imp: 0xE8 }, INY: { imp: 0xC8 },
+  JMP: { abs: 0x4C, ind: 0x6C },
+  JSR: { abs: 0x20 },
+  LDA: { imm: 0xA9, zp: 0xA5, zpx: 0xB5, abs: 0xAD, abx: 0xBD, aby: 0xB9, izx: 0xA1, izy: 0xB1 },
+  LDX: { imm: 0xA2, zp: 0xA6, zpy: 0xB6, abs: 0xAE, aby: 0xBE },
+  LDY: { imm: 0xA0, zp: 0xA4, zpx: 0xB4, abs: 0xAC, abx: 0xBC },
+  LSR: { acc: 0x4A, zp: 0x46, zpx: 0x56, abs: 0x4E, abx: 0x5E },
+  NOP: { imp: 0xEA },
+  ORA: { imm: 0x09, zp: 0x05, zpx: 0x15, abs: 0x0D, abx: 0x1D, aby: 0x19, izx: 0x01, izy: 0x11 },
+  PHA: { imp: 0x48 }, PHP: { imp: 0x08 }, PLA: { imp: 0x68 }, PLP: { imp: 0x28 },
+  ROL: { acc: 0x2A, zp: 0x26, zpx: 0x36, abs: 0x2E, abx: 0x3E },
+  ROR: { acc: 0x6A, zp: 0x66, zpx: 0x76, abs: 0x6E, abx: 0x7E },
+  RTI: { imp: 0x40 }, RTS: { imp: 0x60 },
+  SBC: { imm: 0xE9, zp: 0xE5, zpx: 0xF5, abs: 0xED, abx: 0xFD, aby: 0xF9, izx: 0xE1, izy: 0xF1 },
+  SEC: { imp: 0x38 }, SED: { imp: 0xF8 }, SEI: { imp: 0x78 },
+  STA: { zp: 0x85, zpx: 0x95, abs: 0x8D, abx: 0x9D, aby: 0x99, izx: 0x81, izy: 0x91 },
+  STX: { zp: 0x86, zpy: 0x96, abs: 0x8E },
+  STY: { zp: 0x84, zpx: 0x94, abs: 0x8C },
+  TAX: { imp: 0xAA }, TAY: { imp: 0xA8 }, TSX: { imp: 0xBA }, TXA: { imp: 0x8A }, TXS: { imp: 0x9A }, TYA: { imp: 0x98 }
+};
+const OPS = new Array(256).fill(null);
+for (const m in DEF) for (const md in DEF[m]) OPS[DEF[m][md]] = { m, mode: md, len: MODE_LEN[md], op: DEF[m][md] };
+
+/* ---------------- assembler ---------------- */
+const BRANCH = new Set(['BCC', 'BCS', 'BEQ', 'BMI', 'BNE', 'BPL', 'BVC', 'BVS']);
+const hex2 = v => (v & 255).toString(16).toUpperCase().padStart(2, '0');
+const hex4 = v => (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+
+function assemble(src) {
+  const lines = src.split(/\r?\n/);
+  const errors = [];
+  const syms = {};
+  let listing = [];
+  let rom = new Uint8Array(4096).fill(0xEA);
+  const decisions = [];
+
+  function num(t) {
+    t = t.trim();
+    if (/^\$[0-9a-fA-F]+$/.test(t)) return parseInt(t.slice(1), 16);
+    if (/^%[01]+$/.test(t)) return parseInt(t.slice(1), 2);
+    if (/^[0-9]+$/.test(t)) return parseInt(t, 10);
+    return null;
+  }
+  function evalExpr(s, pass) {
+    s = s.trim();
+    let sel = null;
+    if (s[0] === '<' || s[0] === '>') { sel = s[0]; s = s.slice(1).trim(); }
+    const parts = s.replace(/\s+/g, '').match(/[+-]?[^+-]+/g);
+    if (!parts) throw new Error('Empty expression');
+    let v = 0, known = true;
+    for (const p of parts) {
+      let sign = 1, t = p;
+      if (t[0] === '+') t = t.slice(1); else if (t[0] === '-') { sign = -1; t = t.slice(1); }
+      let n = num(t);
+      if (n === null) {
+        if (Object.prototype.hasOwnProperty.call(syms, t)) n = syms[t];
+        else if (pass === 1) { n = 0; known = false; }
+        else throw new Error('Unknown symbol "' + t + '"');
+      }
+      v += sign * n;
+    }
+    if (sel === '<') v &= 255; else if (sel === '>') v = (v >> 8) & 255;
+    return { v, known };
+  }
+
+  for (let pass = 1; pass <= 2; pass++) {
+    let pc = 0xF000, di = 0;
+    if (pass === 2) listing = [];
+    lines.forEach((raw, ln) => {
+      let line = raw.replace(/;.*$/, '').trim();
+      if (!line) return;
+      try {
+        let m;
+        while ((m = /^([A-Za-z_]\w*):\s*(.*)$/.exec(line))) {
+          if (pass === 1) {
+            if (Object.prototype.hasOwnProperty.call(syms, m[1])) throw new Error('Label "' + m[1] + '" defined twice');
+            syms[m[1]] = pc;
+          }
+          line = m[2];
+        }
+        if (!line) return;
+        if ((m = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(line))) {
+          if (pass === 1) syms[m[1]] = evalExpr(m[2], 1).v;
+          return;
+        }
+        if ((m = /^\.?(org)\s+(.+)$/i.exec(line))) { pc = evalExpr(m[2], pass).v; return; }
+        if ((m = /^\.?(byte|word)\s+(.+)$/i.exec(line))) {
+          const isW = m[1].toLowerCase() === 'word';
+          const bytes = [];
+          m[2].split(',').forEach(e => {
+            const r = evalExpr(e, pass).v;
+            bytes.push(r & 255); if (isW) bytes.push((r >> 8) & 255);
+          });
+          if (pass === 2) { emit(pc, bytes); listing.push({ addr: pc, bytes, text: raw.trim(), ln }); }
+          pc += bytes.length;
+          return;
+        }
+        m = /^([A-Za-z]{3})\b\s*(.*)$/.exec(line);
+        if (!m) throw new Error('Cannot read "' + line + '"');
+        const mn = m[1].toUpperCase(); let opnd = m[2].trim();
+        const def = DEF[mn];
+        if (!def) throw new Error('Unknown instruction "' + mn + '"');
+        let mode, expr = null;
+        if (opnd === '' || /^a$/i.test(opnd)) mode = (def.acc !== undefined && (opnd !== '' || def.imp === undefined)) ? 'acc' : 'imp';
+        else if (opnd[0] === '#') { mode = 'imm'; expr = opnd.slice(1); }
+        else if ((m = /^\((.+),\s*x\)$/i.exec(opnd))) { mode = 'izx'; expr = m[1]; }
+        else if ((m = /^\((.+)\)\s*,\s*y$/i.exec(opnd))) { mode = 'izy'; expr = m[1]; }
+        else if ((m = /^\((.+)\)$/.exec(opnd))) { mode = 'ind'; expr = m[1]; }
+        else if ((m = /^(.+),\s*x$/i.exec(opnd))) { mode = 'zpx?'; expr = m[1]; }
+        else if ((m = /^(.+),\s*y$/i.exec(opnd))) { mode = 'zpy?'; expr = m[1]; }
+        else { mode = BRANCH.has(mn) ? 'rel' : 'zp?'; expr = opnd; }
+        let val = 0;
+        if (expr !== null) {
+          const r = evalExpr(expr, pass); val = r.v;
+          if (mode.endsWith('?')) {
+            let d;
+            if (pass === 1) {
+              const base = mode.slice(0, -1);
+              const zpm = base === 'zp' ? 'zp' : base;
+              d = (r.known && val >= 0 && val < 256 && def[zpm] !== undefined) ? zpm : (base === 'zp' ? 'abs' : base === 'zpx' ? 'abx' : 'aby');
+              if (def[d] === undefined) d = zpm;
+              decisions.push(d);
+            } else d = decisions[di++];
+            mode = d;
+          }
+        }
+        const op = def[mode];
+        if (op === undefined) throw new Error(mn + ' does not support that addressing mode');
+        const bytes = [op];
+        const len = MODE_LEN[mode];
+        if (mode === 'rel') {
+          let off = val - (pc + 2);
+          if (pass === 2 && (off < -128 || off > 127)) throw new Error('Branch target is too far (' + off + ' bytes)');
+          bytes.push(off & 255);
+        } else if (len === 2) {
+          if (pass === 2 && (val < -128 || val > 255)) throw new Error('Value ' + val + ' does not fit in one byte');
+          bytes.push(val & 255);
+        } else if (len === 3) { bytes.push(val & 255, (val >> 8) & 255); }
+        if (pass === 2) { emit(pc, bytes); listing.push({ addr: pc, bytes, text: raw.trim(), ln }); }
+        pc += len;
+      } catch (e) { if (pass === 2 || !/Unknown symbol/.test(e.message)) errors.push({ ln: ln + 1, msg: e.message }); }
+    });
+  }
+  function emit(addr, bytes) { bytes.forEach((b, i) => { const o = (addr + i) & 0xFFF; rom[o] = b; }); }
+  const start = Object.prototype.hasOwnProperty.call(syms, 'start') ? syms.start : 0xF000;
+  rom[0xFFC] = start & 255; rom[0xFFD] = (start >> 8) & 255;
+  rom[0xFFE] = start & 255; rom[0xFFF] = (start >> 8) & 255;
+  const seen = new Set(); const uniq = errors.filter(e => { const k = e.ln + e.msg; if (seen.has(k)) return false; seen.add(k); return true; });
+  return { rom, listing, errors: uniq, syms };
+}
+
+/* ---------------- disassembler (for listing) ---------------- */
+function fmtOperand(o, b1, b2, addr) {
+  const w = b1 | (b2 << 8);
+  switch (o.mode) {
+    case 'imp': return '';
+    case 'acc': return 'A';
+    case 'imm': return '#$' + hex2(b1);
+    case 'zp': return '$' + hex2(b1);
+    case 'zpx': return '$' + hex2(b1) + ',X';
+    case 'zpy': return '$' + hex2(b1) + ',Y';
+    case 'abs': return '$' + hex4(w);
+    case 'abx': return '$' + hex4(w) + ',X';
+    case 'aby': return '$' + hex4(w) + ',Y';
+    case 'ind': return '($' + hex4(w) + ')';
+    case 'izx': return '($' + hex2(b1) + ',X)';
+    case 'izy': return '($' + hex2(b1) + '),Y';
+    case 'rel': return '$' + hex4(addr + 2 + ((b1 << 24) >> 24));
+  }
+  return '';
+}
+
+/* ---------------- TIA ---------------- */
+const TIA_W = ['VSYNC', 'VBLANK', 'WSYNC', 'RSYNC', 'NUSIZ0', 'NUSIZ1', 'COLUP0', 'COLUP1', 'COLUPF', 'COLUBK', 'CTRLPF', 'REFP0', 'REFP1', 'PF0', 'PF1', 'PF2', 'RESP0', 'RESP1', 'RESM0', 'RESM1', 'RESBL', 'AUDC0', 'AUDC1', 'AUDF0', 'AUDF1', 'AUDV0', 'AUDV1', 'GRP0', 'GRP1', 'ENAM0', 'ENAM1', 'ENABL', 'HMP0', 'HMP1', 'HMM0', 'HMM1', 'HMBL', 'VDELP0', 'VDELP1', 'VDELBL', 'RESMP0', 'RESMP1', 'HMOVE', 'HMCLR', 'CXCLR'];
+const HUES = [0, 48, 30, 12, 350, 320, 290, 255, 230, 210, 190, 165, 130, 100, 70, 45];
+function hsl2rgb(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  const f = n => { const k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+const PALETTE = [];
+for (let c = 0; c < 256; c++) {
+  const hue = c >> 4, lum = (c >> 1) & 7;
+  const [r, g, b] = hsl2rgb(HUES[hue], hue === 0 ? 0 : 62, 6 + lum * 12);
+  PALETTE.push((255 << 24) | (b << 16) | (g << 8) | r);
+}
+const paletteCss = c => { const v = PALETTE[c & 0xFE]; return 'rgb(' + (v & 255) + ',' + ((v >> 8) & 255) + ',' + ((v >> 16) & 255) + ')'; };
+
+const NUSIZ = { 0: { c: [0], s: 1 }, 1: { c: [0, 16], s: 1 }, 2: { c: [0, 32], s: 1 }, 3: { c: [0, 16, 32], s: 1 }, 4: { c: [0, 64], s: 1 }, 5: { c: [0], s: 2 }, 6: { c: [0, 32, 64], s: 1 }, 7: { c: [0], s: 4 } };
+
+class TIA {
+  constructor() { this.fb = new Uint32Array(160 * 192); this.reset(); }
+  reset() {
+    this.reg = new Uint8Array(64); this.hpos = 0; this.line = 0; this.frame = 0; this.wsync = false;
+    this.p0x = 0; this.p1x = 0; this.vs = false; this.sawSync = false; this.dirty = true; this.fire = false; this.fb.fill(0xFF000000);
+  }
+  write(a, v) {
+    if (a > 0x2C) return;
+    this.reg[a] = v;
+    switch (a) {
+      case 0: { const on = !!(v & 2); if (on && !this.vs) { this.frame++; this.line = 0; this.sawSync = true; } this.vs = on; break; }
+      case 2: this.wsync = true; break;
+      case 0x10: this.p0x = this.pos(); break;
+      case 0x11: this.p1x = this.pos(); break;
+    }
+  }
+  pos() { const h = this.hpos; return h < 68 ? 3 : (h - 68 + 5) % 160; }
+  read(a) {
+    a &= 0x0F;
+    if (a === 0x0C) return this.fire ? 0x00 : 0x80;
+    if (a === 0x0D) return 0x80;
+    if (a >= 8 && a <= 0x0B) return 0x80;
+    return 0;
+  }
+  tick3() { for (let i = 0; i < 3; i++) this.clock(); }
+  clock() {
+    const h = this.hpos;
+    if (h >= 68) {
+      const y = this.line - 40, x = h - 68;
+      if (y >= 0 && y < 192) this.fb[y * 160 + x] = (this.reg[1] & 2) ? 0xFF000000 : PALETTE[this.pixel(x)];
+    }
+    if (++this.hpos >= 228) {
+      this.hpos = 0; this.line++;
+      if (this.line >= 262) { this.line = 0; if (!this.sawSync) this.frame++; this.sawSync = false; }
+      if (this.line === 232) this.dirty = true;
+    }
+  }
+  playerHit(x, px, grp, nusiz, refl) {
+    const n = NUSIZ[nusiz & 7];
+    for (const off of n.c) {
+      let dx = (x - px - off + 160) % 160;
+      const w = 8 * n.s;
+      if (dx < w) {
+        const bit = (dx / n.s) | 0;
+        if (refl ? (grp >> bit) & 1 : (grp >> (7 - bit)) & 1) return true;
+      }
+    }
+    return false;
+  }
+  pfBit(idx) {
+    const r = this.reg;
+    if (idx < 4) return (r[0x0D] >> (4 + idx)) & 1;
+    if (idx < 12) return (r[0x0E] >> (7 - (idx - 4))) & 1;
+    return (r[0x0F] >> (idx - 12)) & 1;
+  }
+  pixel(x) {
+    const r = this.reg;
+    let idx = x >> 2, pf;
+    if (idx < 20) pf = this.pfBit(idx);
+    else pf = (r[0x0A] & 1) ? this.pfBit(39 - idx) : this.pfBit(idx - 20);
+    const p0 = this.playerHit(x, this.p0x, r[0x1B], r[4], r[0x0B] & 8);
+    const p1 = this.playerHit(x, this.p1x, r[0x1C], r[5], r[0x0C] & 8);
+    const pfc = (r[0x0A] & 2) ? (x < 80 ? r[6] : r[7]) : r[8];
+    if ((r[0x0A] & 4) && pf) return pfc;
+    if (p0) return r[6];
+    if (p1) return r[7];
+    if (pf) return pfc;
+    return r[9];
+  }
+}
+
+/* ---------------- RIOT ---------------- */
+class RIOT {
+  constructor() { this.reset(); }
+  reset() { this.t = 0xFF; this.iv = 1024; this.cur = 1024; this.sub = 0; this.under = false; this.swcha = 0xFF; this.swchb = 0x0B; this.ddra = 0; this.ddrb = 0; }
+  read(a) {
+    if (a & 4) {
+      if (a & 1) { const v = this.under ? 0x80 : 0; return v; }
+      this.under = false; return this.t;
+    }
+    switch (a & 3) { case 0: return this.swcha; case 1: return this.ddra; case 2: return this.swchb; default: return this.ddrb; }
+  }
+  write(a, v) {
+    if (a & 4) {
+      if (a & 0x10) { this.iv = [1, 8, 64, 1024][a & 3]; this.cur = this.iv; this.t = v; this.sub = 0; this.under = false; }
+      return;
+    }
+    switch (a & 3) { case 1: this.ddra = v; break; case 3: this.ddrb = v; break; }
+  }
+  tick() {
+    if (++this.sub >= this.cur) {
+      this.sub = 0;
+      this.t = (this.t - 1) & 255;
+      if (this.t === 255 && !this.under) { this.under = true; this.cur = 1; }
+    }
+  }
+}
+
+/* ---------------- machine ---------------- */
+class Machine {
+  constructor() {
+    this.rom = new Uint8Array(4096); this.ram = new Uint8Array(128);
+    this.tia = new TIA(); this.riot = new RIOT();
+    this.tracing = true; this.tr = [];
+    this.acc = { rom: 0, tia: 0, ram: 0, timer: 0, io: 0 };
+    this.reset();
+  }
+  loadRom(r) { this.rom.set(r); this.reset(); }
+  reset() {
+    this.a = 0; this.x = 0; this.y = 0; this.s = 0xFD; this.p = 0x24; this.cycles = 0; this.tr.length = 0;
+    this.ram.fill(0); this.tia.reset(); this.riot.reset();
+    this.pc = this.rom[0xFFC] | (this.rom[0xFFD] << 8);
+    this.halted = 0;
+  }
+  chipOf(addr) {
+    addr &= 0x1FFF;
+    if (addr & 0x1000) return 'rom';
+    if (!(addr & 0x80)) return 'tia';
+    if (!(addr & 0x200)) return 'ram';
+    return (addr & 4) ? 'timer' : 'io';
+  }
+  read(addr) {
+    addr &= 0x1FFF;
+    if (addr & 0x1000) return this.rom[addr & 0xFFF];
+    if (!(addr & 0x80)) return this.tia.read(addr);
+    if (!(addr & 0x200)) return this.ram[addr & 0x7F];
+    return this.riot.read(addr);
+  }
+  write(addr, v) {
+    addr &= 0x1FFF;
+    if (addr & 0x1000) return;
+    if (!(addr & 0x80)) { this.tia.write(addr & 0x3F, v); return; }
+    if (!(addr & 0x200)) { this.ram[addr & 0x7F] = v; return; }
+    this.riot.write(addr, v);
+  }
+  cyc() { this.cycles++; this.tia.tick3(); this.riot.tick(); }
+  ev(o) { if (this.tracing) this.tr.push(o); }
+  idle(n, text, set) { for (let i = 0; i < n; i++) this.cyc(); this.ev({ t: 'idle', n, text: text || 'Internal cycle', set }); }
+
+  fetch(kind) {
+    const addr = this.pc & 0xFFFF;
+    this.cyc();
+    const v = this.read(addr);
+    this.pc = (this.pc + 1) & 0xFFFF;
+    const chip = this.chipOf(addr); this.acc[chip]++;
+    this.ev({ t: 'fetch', kind, addr: addr & 0x1FFF, val: v, chip, set: kind === 'op' ? { pc: this.pc, ar: addr & 0x1FFF, db: v, ir: v } : { pc: this.pc, ar: addr & 0x1FFF, db: v } });
+    return v;
+  }
+  rd(addr, tag) {
+    addr &= 0x1FFF; this.cyc();
+    const v = this.read(addr);
+    const chip = this.chipOf(addr); this.acc[chip]++;
+    this.ev({ t: 'read', addr, val: v, chip, tag, set: { ar: addr, db: v } });
+    return v;
+  }
+  wr(addr, v, tag) {
+    addr &= 0x1FFF; this.cyc();
+    this.write(addr, v);
+    const chip = this.chipOf(addr); this.acc[chip]++;
+    this.ev({ t: 'write', addr, val: v, chip, tag, reg: chip === 'tia' ? TIA_W[addr & 0x3F] : null, set: { ar: addr, db: v } });
+  }
+  setNZ(v) { this.p = (this.p & ~(FN | FZ)) | (v & 0x80) | (v === 0 ? FZ : 0); }
+
+  /* addressing: returns effective address, tracing address arithmetic */
+  ea(mode, write) {
+    switch (mode) {
+      case 'zp': { const lo = this.fetch('operand'); return lo; }
+      case 'zpx': case 'zpy': {
+        const lo = this.fetch('operand'); const idx = mode === 'zpx' ? this.x : this.y; const a = (lo + idx) & 255;
+        this.idle(1, 'Add ' + (mode === 'zpx' ? 'X' : 'Y') + ' to the zero-page address', null);
+        this.ev({ t: 'ea', idx: mode === 'zpx' ? 'X' : 'Y', base: lo, idxv: idx, addr: a, cross: false, set: { ar: a } });
+        return a;
+      }
+      case 'abs': { const lo = this.fetch('operand'); const hi = this.fetch('operand'); return lo | (hi << 8); }
+      case 'abx': case 'aby': {
+        const lo = this.fetch('operand'); const hi = this.fetch('operand'); const idx = mode === 'abx' ? this.x : this.y;
+        const base = lo | (hi << 8), a = (base + idx) & 0xFFFF; const cross = (base & 0xFF00) !== (a & 0xFF00);
+        this.ev({ t: 'ea', idx: mode === 'abx' ? 'X' : 'Y', base, idxv: idx, addr: a, cross, set: { ar: a & 0x1FFF } });
+        if (cross || write) this.idle(1, cross ? 'Page crossed: extra cycle to fix the high byte' : 'Store: extra cycle', null);
+        return a;
+      }
+      case 'izx': {
+        const zp = this.fetch('operand'); const p = (zp + this.x) & 255;
+        this.idle(1, 'Add X to the pointer address', null);
+        this.ev({ t: 'ea', idx: 'X', base: zp, idxv: this.x, addr: p, cross: false, set: { ar: p } });
+        const lo = this.rd(p, 'ptr'); const hi = this.rd((p + 1) & 255, 'ptr');
+        return lo | (hi << 8);
+      }
+      case 'izy': {
+        const zp = this.fetch('operand');
+        const lo = this.rd(zp, 'ptr'); const hi = this.rd((zp + 1) & 255, 'ptr');
+        const base = lo | (hi << 8), a = (base + this.y) & 0xFFFF; const cross = (base & 0xFF00) !== (a & 0xFF00);
+        this.ev({ t: 'ea', idx: 'Y', base, idxv: this.y, addr: a, cross, set: { ar: a & 0x1FFF } });
+        if (cross || write) this.idle(1, cross ? 'Page crossed: extra cycle to fix the high byte' : 'Store: extra cycle', null);
+        return a;
+      }
+    }
+    throw new Error('bad mode ' + mode);
+  }
+  operand(mode) {
+    if (mode === 'imm') { const v = this.fetch('operand'); return { v, addr: null }; }
+    const addr = this.ea(mode, false);
+    return { v: this.rd(addr, 'data'), addr };
+  }
+
+  /* ---- ALU primitives (all traced) ---- */
+  addCore(a, b, cin) {
+    const cs = []; let c = cin, res = 0;
+    for (let i = 0; i < 8; i++) {
+      const ai = (a >> i) & 1, bi = (b >> i) & 1;
+      const s = ai ^ bi ^ c, co = (ai & bi) | (ai & c) | (bi & c);
+      res |= s << i; c = co; cs.push(co);
+    }
+    return { res, cs, cout: c };
+  }
+  aluAdd(op, a, b, src, dst, opts) {
+    opts = opts || {};
+    const sub = op === 'SBC' || op === 'CMP' || op === 'CPX' || op === 'CPY';
+    const bb = sub ? (~b) & 255 : b;
+    const cin = (op === 'ADC' || op === 'SBC') ? (this.p & FC) : (sub ? 1 : 0);
+    const r = this.addCore(a, bb, cin);
+    let res = r.res, cout = r.cout;
+    let v = ((~(a ^ bb)) & (a ^ res) & 0x80) ? 1 : 0;
+    let fl = '', dec = false;
+    if ((op === 'ADC' || op === 'SBC') && (this.p & FD)) {
+      dec = true;
+      if (op === 'ADC') {
+        let lo = (a & 15) + (b & 15) + cin; if (lo > 9) lo += 6;
+        let hi = (a >> 4) + (b >> 4) + (lo > 15 ? 1 : 0);
+        const tmp = ((hi << 4) | (lo & 15)) & 255;
+        v = ((~(a ^ b)) & (a ^ tmp) & 0x80) ? 1 : 0;
+        if (hi > 9) hi += 6;
+        cout = hi > 15 ? 1 : 0;
+        res = ((hi << 4) | (lo & 15)) & 255;
+        this.zbin = r.res; this.ntmp = tmp;
+      } else {
+        let lo = (a & 15) - (b & 15) - (1 - cin), hi = (a >> 4) - (b >> 4);
+        if (lo < 0) { lo -= 6; hi--; }
+        if (hi < 0) hi -= 6;
+        this.zbin = r.res; this.ntmp = r.res;
+        res = ((hi << 4) | (lo & 15)) & 255;
+      }
+    }
+    const zval = dec ? this.zbin : res, nval = dec ? this.ntmp : res;
+    if (op === 'INC' || op === 'DEC' || op === 'INX' || op === 'INY' || op === 'DEX' || op === 'DEY') {
+      this.setNZ(res); fl = 'NZ';
+    } else if (op === 'CMP' || op === 'CPX' || op === 'CPY') {
+      this.p = (this.p & ~(FN | FZ | FC)) | (nval & 0x80) | (zval === 0 ? FZ : 0) | (cout ? FC : 0); fl = 'NZC';
+    } else {
+      this.p = (this.p & ~(FN | FZ | FC | FV)) | (nval & 0x80) | (zval === 0 ? FZ : 0) | (cout ? FC : 0) | (v ? FV : 0); fl = 'NZCV';
+    }
+    this.ev({ t: 'alu', unit: 'add', op, src, a, b: bb, bRaw: b, res, cin, cout, cs: r.cs, dst, fl, dec, inv: sub, useCin: op === 'ADC' || op === 'SBC', set: { ain: a, bin: bb, res, p: this.p } });
+    return res;
+  }
+  aluLogic(op, a, b, src, dst) {
+    const res = op === 'AND' ? a & b : op === 'ORA' ? a | b : a ^ b;
+    this.setNZ(res);
+    this.ev({ t: 'alu', unit: 'logic', op, src, a, b, res, dst, fl: 'NZ', set: { ain: a, bin: b, res, p: this.p } });
+    return res;
+  }
+  aluBit(a, b) {
+    const res = a & b;
+    this.p = (this.p & ~(FN | FV | FZ)) | (b & 0xC0) | (res === 0 ? FZ : 0);
+    this.ev({ t: 'alu', unit: 'logic', op: 'BIT', src: 'A', a, b, res, dst: 'none', fl: 'NVZ', set: { ain: a, bin: b, res, p: this.p } });
+  }
+  aluShift(op, v, src, dst) {
+    let res, c;
+    const cin = this.p & FC;
+    switch (op) {
+      case 'ASL': c = (v >> 7) & 1; res = (v << 1) & 255; break;
+      case 'LSR': c = v & 1; res = v >> 1; break;
+      case 'ROL': c = (v >> 7) & 1; res = ((v << 1) | cin) & 255; break;
+      default: c = v & 1; res = (v >> 1) | (cin << 7);
+    }
+    this.p = (this.p & ~(FN | FZ | FC)) | (res & 0x80) | (res === 0 ? FZ : 0) | (c ? FC : 0);
+    this.ev({ t: 'alu', unit: 'shift', op, src, a: v, b: v, res, cin, cout: c, dst, fl: 'NZC', useCin: op === 'ROL' || op === 'ROR', set: { ain: v, bin: v, res, p: this.p } });
+    return res;
+  }
+  load(reg, v, src) {
+    this[reg] = v; this.setNZ(v);
+    this.ev({ t: 'load', reg, val: v, src, set: { [reg]: v, p: this.p, db: v } });
+  }
+  push(v) {
+    this.wr(0x100 | this.s, v, 'stack');
+    this.s = (this.s - 1) & 255;
+    this.ev({ t: 'sreg', s: this.s, dir: -1, set: { s: this.s } });
+  }
+  pull() {
+    this.s = (this.s + 1) & 255;
+    this.ev({ t: 'sreg', s: this.s, dir: 1, set: { s: this.s } });
+    return this.rd(0x100 | this.s, 'stack');
+  }
+  branch(cond, name) {
+    const off = this.fetch('operand'); const sOff = (off << 24) >> 24;
+    const target = (this.pc + sOff) & 0xFFFF;
+    if (cond) {
+      const cross = (this.pc & 0xFF00) !== (target & 0xFF00);
+      this.ev({ t: 'branch', taken: true, name, target, cross, set: {} });
+      this.idle(1, 'Branch taken: add the offset to PC', null);
+      if (cross) this.idle(1, 'Page crossed: extra cycle', null);
+      this.pc = target;
+      this.ev({ t: 'jump', target, viaAdder: true, set: { pc: target } });
+    } else this.ev({ t: 'branch', taken: false, name, target, set: {} });
+  }
+
+  step() {
+    this.tr.length = 0; const c0 = this.cycles, pc0 = this.pc;
+    for (const k in this.acc) this.acc[k] = 0;
+    const opc = this.fetch('op'); const o = OPS[opc];
+    let info;
+    if (!o) {
+      this.idle(1, 'Unofficial opcode $' + hex2(opc) + ': treated as a NOP');
+      info = { pc: pc0, op: opc, m: '???', mode: 'imp', len: 1, cycles: this.cycles - c0 };
+    } else {
+      this.exec(o);
+      info = { pc: pc0, op: opc, m: o.m, mode: o.mode, len: o.len, cycles: this.cycles - c0 };
+    }
+    if (this.tia.wsync) {
+      this.tia.wsync = false;
+      let n = 0; while (this.tia.hpos !== 0) { this.cyc(); n++; }
+      if (n) this.ev({ t: 'halt', n, set: {} });
+      info.cycles = this.cycles - c0; info.halted = n;
+    }
+    return info;
+  }
+
+  exec(o) {
+    const m = o.m, mode = o.mode;
+    switch (m) {
+      case 'LDA': { const r = this.operand(mode); this.load('a', r.v, 'db'); break; }
+      case 'LDX': { const r = this.operand(mode); this.load('x', r.v, 'db'); break; }
+      case 'LDY': { const r = this.operand(mode); this.load('y', r.v, 'db'); break; }
+      case 'STA': { const a = this.ea(mode, true); this.ev({ t: 'regout', reg: 'a', val: this.a, set: { db: this.a } }); this.wr(a, this.a, 'data'); break; }
+      case 'STX': { const a = this.ea(mode, true); this.ev({ t: 'regout', reg: 'x', val: this.x, set: { db: this.x } }); this.wr(a, this.x, 'data'); break; }
+      case 'STY': { const a = this.ea(mode, true); this.ev({ t: 'regout', reg: 'y', val: this.y, set: { db: this.y } }); this.wr(a, this.y, 'data'); break; }
+      case 'ADC': case 'SBC': { const r = this.operand(mode); this.a = this.aluAdd(m, this.a, r.v, 'A', 'a'); this.ev({ t: 'wb', reg: 'a', val: this.a, set: { a: this.a } }); break; }
+      case 'CMP': { const r = this.operand(mode); this.aluAdd(m, this.a, r.v, 'A', 'none'); break; }
+      case 'CPX': { const r = this.operand(mode); this.aluAdd(m, this.x, r.v, 'X', 'none'); break; }
+      case 'CPY': { const r = this.operand(mode); this.aluAdd(m, this.y, r.v, 'Y', 'none'); break; }
+      case 'AND': case 'ORA': case 'EOR': { const r = this.operand(mode); this.a = this.aluLogic(m, this.a, r.v, 'A', 'a'); this.ev({ t: 'wb', reg: 'a', val: this.a, set: { a: this.a } }); break; }
+      case 'BIT': { const r = this.operand(mode); this.aluBit(this.a, r.v); break; }
+      case 'ASL': case 'LSR': case 'ROL': case 'ROR': {
+        if (mode === 'acc') { this.idle(1, 'Accumulator operand: no memory access'); this.a = this.aluShift(m, this.a, 'A', 'a'); this.ev({ t: 'wb', reg: 'a', val: this.a, set: { a: this.a } }); }
+        else this.rmw(m, mode);
+        break;
+      }
+      case 'INC': case 'DEC': this.rmw(m, mode); break;
+      case 'INX': case 'INY': case 'DEX': case 'DEY': {
+        const reg = (m[2] === 'X') ? 'x' : 'y'; const d = m[0] === 'I' ? 1 : 255;
+        this.idle(1, 'Implied operand: internal cycle');
+        this[reg] = this.aluAdd(m, this[reg], d, reg.toUpperCase(), reg);
+        this.ev({ t: 'wb', reg, val: this[reg], set: { [reg]: this[reg] } });
+        break;
+      }
+      case 'TAX': this.idle(1, 'Implied operand'); this.ev({ t: 'xfer', from: 'a', to: 'x', set: {} }); this.load('x', this.a, 'a'); break;
+      case 'TAY': this.idle(1, 'Implied operand'); this.ev({ t: 'xfer', from: 'a', to: 'y', set: {} }); this.load('y', this.a, 'a'); break;
+      case 'TXA': this.idle(1, 'Implied operand'); this.ev({ t: 'xfer', from: 'x', to: 'a', set: {} }); this.load('a', this.x, 'x'); break;
+      case 'TYA': this.idle(1, 'Implied operand'); this.ev({ t: 'xfer', from: 'y', to: 'a', set: {} }); this.load('a', this.y, 'y'); break;
+      case 'TSX': this.idle(1, 'Implied operand'); this.ev({ t: 'xfer', from: 's', to: 'x', set: {} }); this.load('x', this.s, 's'); break;
+      case 'TXS': this.idle(1, 'Implied operand'); this.ev({ t: 'xfer', from: 'x', to: 's', set: {} }); this.s = this.x; this.ev({ t: 'load', reg: 's', val: this.s, src: 'x', noflags: true, set: { s: this.s, db: this.s } }); break;
+      case 'CLC': this.idle(1, 'Clear carry flag', null); this.p &= ~FC; this.ev({ t: 'flag', text: 'C cleared', set: { p: this.p } }); break;
+      case 'SEC': this.idle(1, 'Set carry flag', null); this.p |= FC; this.ev({ t: 'flag', text: 'C set', set: { p: this.p } }); break;
+      case 'CLD': this.idle(1, 'Clear decimal flag', null); this.p &= ~FD; this.ev({ t: 'flag', text: 'D cleared', set: { p: this.p } }); break;
+      case 'SED': this.idle(1, 'Set decimal flag', null); this.p |= FD; this.ev({ t: 'flag', text: 'D set', set: { p: this.p } }); break;
+      case 'CLI': this.idle(1, 'Clear interrupt flag', null); this.p &= ~FI; this.ev({ t: 'flag', text: 'I cleared', set: { p: this.p } }); break;
+      case 'SEI': this.idle(1, 'Set interrupt flag', null); this.p |= FI; this.ev({ t: 'flag', text: 'I set', set: { p: this.p } }); break;
+      case 'CLV': this.idle(1, 'Clear overflow flag', null); this.p &= ~FV; this.ev({ t: 'flag', text: 'V cleared', set: { p: this.p } }); break;
+      case 'NOP': this.idle(1, 'No operation'); break;
+      case 'PHA': this.idle(1, 'Internal cycle'); this.ev({ t: 'regout', reg: 'a', val: this.a, set: { db: this.a } }); this.push(this.a); break;
+      case 'PHP': this.idle(1, 'Internal cycle'); this.ev({ t: 'regout', reg: 'p', val: this.p | 0x30, set: { db: this.p | 0x30 } }); this.push(this.p | 0x30); break;
+      case 'PLA': { this.idle(1, 'Internal cycle'); const v = this.pull(); this.load('a', v, 'db'); break; }
+      case 'PLP': { this.idle(1, 'Internal cycle'); const v = this.pull(); this.p = (v & ~FB) | FU; this.ev({ t: 'load', reg: 'p', val: this.p, src: 'db', noflags: true, set: { p: this.p, db: v } }); break; }
+      case 'JMP': {
+        if (mode === 'abs') { const lo = this.fetch('operand'); const hi = this.fetch('operand'); this.pc = lo | (hi << 8); this.ev({ t: 'jump', target: this.pc, set: { pc: this.pc } }); }
+        else {
+          const lo = this.fetch('operand'); const hi = this.fetch('operand'); const p = lo | (hi << 8);
+          const l = this.rd(p, 'ptr'); const h = this.rd((p & 0xFF00) | ((p + 1) & 0xFF), 'ptr');
+          this.pc = l | (h << 8); this.ev({ t: 'jump', target: this.pc, set: { pc: this.pc } });
+        }
+        break;
+      }
+      case 'JSR': {
+        const lo = this.fetch('operand'); this.idle(1, 'Internal cycle: stack pointer setup');
+        const ret = this.pc; // address of the last byte of the JSR
+        this.ev({ t: 'regout', reg: 'pc', val: ret >> 8, set: { db: ret >> 8 } });
+        this.push((ret >> 8) & 255);
+        this.ev({ t: 'regout', reg: 'pc', val: ret & 255, set: { db: ret & 255 } });
+        this.push(ret & 255);
+        const hi = this.fetch('operand'); this.pc = lo | (hi << 8);
+        this.ev({ t: 'jump', target: this.pc, set: { pc: this.pc } });
+        break;
+      }
+      case 'RTS': {
+        this.idle(1, 'Internal cycle'); this.idle(1, 'Internal cycle: stack pointer setup', null);
+        const lo = this.pull(); const hi = this.pull();
+        this.idle(1, 'Increment the return address', null);
+        this.pc = ((lo | (hi << 8)) + 1) & 0xFFFF;
+        this.ev({ t: 'jump', target: this.pc, set: { pc: this.pc } });
+        break;
+      }
+      case 'RTI': {
+        this.idle(1, 'Internal cycle'); this.idle(1, 'Internal cycle');
+        const p = this.pull(); this.p = (p & ~FB) | FU;
+        this.ev({ t: 'load', reg: 'p', val: this.p, src: 'db', noflags: true, set: { p: this.p } });
+        const lo = this.pull(); const hi = this.pull(); this.pc = lo | (hi << 8);
+        this.ev({ t: 'jump', target: this.pc, set: { pc: this.pc } });
+        break;
+      }
+      case 'BRK': {
+        this.fetch('operand');
+        const ret = this.pc;
+        this.push((ret >> 8) & 255); this.push(ret & 255); this.push(this.p | 0x30);
+        this.p |= FI;
+        const lo = this.rd(0x1FFE, 'vector'), hi = this.rd(0x1FFF, 'vector');
+        this.pc = lo | (hi << 8);
+        this.ev({ t: 'jump', target: this.pc, set: { pc: this.pc, p: this.p } });
+        break;
+      }
+      case 'BCC': this.branch(!(this.p & FC), m); break;
+      case 'BCS': this.branch(!!(this.p & FC), m); break;
+      case 'BNE': this.branch(!(this.p & FZ), m); break;
+      case 'BEQ': this.branch(!!(this.p & FZ), m); break;
+      case 'BPL': this.branch(!(this.p & FN), m); break;
+      case 'BMI': this.branch(!!(this.p & FN), m); break;
+      case 'BVC': this.branch(!(this.p & FV), m); break;
+      case 'BVS': this.branch(!!(this.p & FV), m); break;
+    }
+  }
+  rmw(m, mode) {
+    const addr = this.ea(mode, true);
+    const v = this.rd(addr, 'data');
+    this.idle(1, 'Write the old value back (read-modify-write)', null);
+    let res;
+    if (m === 'INC') res = this.aluAdd('INC', v, 1, 'M', 'mem');
+    else if (m === 'DEC') res = this.aluAdd('DEC', v, 255, 'M', 'mem');
+    else res = this.aluShift(m, v, 'M', 'mem');
+    this.wr(addr, res, 'data');
+  }
+}
+
+const api = { Machine, TIA, RIOT, assemble, OPS, DEF, TIA_W, PALETTE, paletteCss, hex2, hex4, fmtOperand, FC, FZ, FI, FD, FB, FU, FV, FN };
+if (typeof module !== 'undefined' && module.exports) module.exports = api;
+else root.Atari = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+(function (root) {
+const DEMOS = [
+{ id: 'tour', name: 'Instruction tour', blurb: 'One of each kind of operation: loads, stores, add, logic, shifts, compare, branch, subroutine, and a TIA write.',
+src: `; Instruction tour. Every line lights a different path.
+COLUBK = $09
+
+start:  SEI             ; set interrupt-disable flag
+        CLD             ; binary (not decimal) arithmetic
+        LDX #$FF
+        TXS             ; stack pointer = $FF
+        LDA #$05        ; load immediate
+        STA $80         ; store into RIOT RAM
+        CLC
+        ADC #$07        ; add: the adder lights up
+        STA $81
+        LDA $80         ; read RAM back
+        AND #$0F        ; logic unit
+        ORA #$30
+        EOR #$FF
+        ASL A           ; shifter
+        LSR A
+        TAX
+        INX             ; increment through the adder
+        DEX
+        CMP #$10        ; compare = subtract, keep flags only
+        BNE skip        ; branch on the Z flag
+        NOP
+skip:   JSR sub         ; pushes the return address on the stack
+        LDA #$44
+        STA COLUBK      ; write a TIA register
+        JMP start
+
+sub:    LDY #$03
+loop:   DEY
+        BNE loop
+        RTS
+` },
+{ id: 'ripple', name: 'Carry ripple', blurb: 'Watch the carry travel through the 8 adder cells: $FF + 1 ripples all the way, $55 + $2A never does.',
+src: `; Carry ripple through the 8-bit adder
+start:  CLC
+        LDA #$FF
+        ADC #$01        ; carry ripples through all 8 bits
+        CLC
+        LDA #$55
+        ADC #$2A        ; no carries at all
+        CLC
+        LDA #$7F
+        ADC #$01        ; carry into bit 7 sets the V flag
+        SEC
+        LDA #$10
+        SBC #$01        ; subtract = add the inverse
+        JMP start
+` },
+{ id: 'bcd', name: 'Decimal mode', blurb: 'With the D flag set, the adder works in BCD: $19 + $28 gives $47, and $99 + 1 wraps to $00 with carry.',
+src: `; Decimal (BCD) arithmetic
+start:  SED             ; decimal flag on
+        CLC
+        LDA #$19
+        ADC #$28        ; 19 + 28 = 47 in BCD
+        CLC
+        LDA #$99
+        ADC #$01        ; 99 + 1 = 100: A=00, carry set
+        CLD
+        JMP start
+` },
+{ id: 'ram', name: 'RAM fill', blurb: 'Indexed addressing writes a ramp into RIOT RAM. Zoom into the RAM grid to see each cell light.',
+src: `; Fill zero-page RAM with a ramp using indexed addressing
+start:  LDX #$00
+fill:   TXA
+        STA $80,X       ; address = $80 + X
+        INX
+        CPX #$20
+        BNE fill
+        JMP start
+` },
+{ id: 'timer', name: 'RIOT timer', blurb: 'Start the interval timer and poll it. It counts down once every 64 CPU cycles.',
+src: `; RIOT interval timer
+INTIM  = $0284
+TIM64T = $0296
+start:  LDA #$0A
+        STA TIM64T      ; timer counts down every 64 cycles
+wait:   LDA INTIM       ; read it back
+        STA $80
+        BNE wait        ; loop until it reaches zero
+        JMP start
+` },
+{ id: 'kernel', name: 'Rainbow picture', blurb: 'A tiny display kernel: sync, blank, 192 lines of colour, overscan. Run it at Real time to see the TV fill in.',
+src: `; A minimal 2600 display kernel: rainbow bars, playfield and one sprite
+VSYNC  = $00
+VBLANK = $01
+WSYNC  = $02
+COLUP0 = $06
+COLUPF = $08
+COLUBK = $09
+CTRLPF = $0A
+PF0    = $0D
+PF1    = $0E
+PF2    = $0F
+RESP0  = $10
+GRP0   = $1B
+
+start:  SEI
+        CLD
+        LDX #$FF
+        TXS
+        LDA #$0E
+        STA COLUPF      ; white playfield
+        LDA #$1E
+        STA COLUP0      ; yellow player
+        LDA #$3C
+        STA GRP0        ; player shape
+        LDA #$01
+        STA CTRLPF      ; mirror the playfield
+        LDA #$50
+        STA PF0
+        LDA #$AA
+        STA PF1
+        LDA #$0F
+        STA PF2
+        STA WSYNC       ; start of a scanline
+        LDX #$06
+pos:    DEX
+        BNE pos         ; burn cycles to choose the x position
+        STA RESP0       ; strobe: the player lands here
+
+frame:  LDA #$02
+        STA VSYNC       ; vertical sync on
+        STA VBLANK
+        STA WSYNC
+        STA WSYNC
+        STA WSYNC
+        LDA #$00
+        STA VSYNC       ; vertical sync off
+        LDX #37
+vb:     STA WSYNC
+        DEX
+        BNE vb          ; 37 blank lines
+        STA VBLANK      ; picture on
+        LDX #192
+        LDY #$00
+line:   STA WSYNC       ; wait for the start of the line
+        STY COLUBK      ; background colour for this line
+        INY
+        INY
+        DEX
+        BNE line
+        LDA #$02
+        STA VBLANK      ; picture off
+        LDX #29
+os:     STA WSYNC
+        DEX
+        BNE os          ; overscan
+        JMP frame
+` }
+];
+if (typeof module !== 'undefined' && module.exports) module.exports = DEMOS; else root.DEMOS = DEMOS;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+/* Geometry, wiring and copy for the schematic. World is 2400 x 1500 units. */
+(function (root) {
+const N = [], E = [], L = [];
+const node = (id, x, y, w, h, label, o) => N.push(Object.assign({ id, x, y, w, h, label, kind: 'data' }, o || {}));
+const edge = (id, kind, pts, o) => E.push(Object.assign({ id, kind, pts }, o || {}));
+
+/* ---------- CPU ---------- */
+node('pc', 100, 120, 300, 90, 'PC', { sub: 'Program counter', kind: 'addr', view: 'addr', val: 'pc', fmt: 'h4',
+  desc: 'The program counter holds the address of the next byte to fetch. Every fetch adds one, so the CPU walks through the cartridge in order. Jumps, branches and returns load a new value.' });
+node('ar', 470, 120, 300, 90, 'Address register', { sub: 'drives A0 to A12', kind: 'addr', view: 'addr', val: 'ar', fmt: 'h4',
+  desc: 'The address currently on the 13 address lines. It comes from the PC, or from an effective address the adder worked out. The 6507 has only 13 address pins, so the top three bits of every address are ignored.' });
+node('inc', 100, 255, 300, 65, 'PC + 1', { kind: 'addr', view: 'addr',
+  desc: 'A small incrementer that bumps the program counter after each fetch.' });
+node('ir', 100, 370, 300, 90, 'Instruction register', { kind: 'ctl', view: 'ctrl', val: 'ir', fmt: 'h2', subKey: 'mnem',
+  desc: 'Holds the opcode byte that was just fetched, while the decoder works out what to do with it.' });
+node('dec', 100, 490, 300, 200, 'Decode ROM', { kind: 'ctl', view: 'ctrl', custom: 'dec',
+  desc: 'A logic array that turns the opcode into control signals: which register drives which bus, what the ALU should do, and how many cycles the instruction takes.' });
+node('tim', 100, 720, 300, 110, 'Timing control', { kind: 'ctl', view: 'ctrl', custom: 'tim',
+  desc: 'Counts the cycles of the current instruction (T0, T1, and so on). Each cycle is one memory access, and the decoder uses the count to sequence the steps.' });
+node('a', 470, 370, 180, 80, 'A', { sub: 'Accumulator', view: 'regs', val: 'a', fmt: 'h2',
+  desc: 'The accumulator. Nearly all arithmetic and logic starts or ends here.' });
+node('x', 470, 470, 180, 80, 'X', { sub: 'Index register', view: 'regs', val: 'x', fmt: 'h2',
+  desc: 'Index register X. Used for indexed addressing such as STA $80,X, and for loop counters.' });
+node('y', 470, 570, 180, 80, 'Y', { sub: 'Index register', view: 'regs', val: 'y', fmt: 'h2',
+  desc: 'Index register Y, a second index and counter.' });
+node('s', 470, 670, 180, 80, 'S', { sub: 'Stack pointer', view: 'regs', val: 's', fmt: 'h2',
+  desc: 'Points into page 1 ($0100 to $01FF). On the 2600 that page is mirrored onto the 128 bytes of RIOT RAM, so the stack shares memory with your variables.' });
+node('p', 470, 770, 180, 100, 'P', { sub: 'Status flags', view: 'regs', custom: 'flags',
+  desc: 'The status register. N negative, V overflow, B break, D decimal, I interrupt disable, Z zero, C carry.' });
+node('buf', 470, 915, 300, 80, 'Data bus buffer', { view: 'cpu', val: 'db', fmt: 'h2',
+  desc: 'Connects the internal data bus to the eight data pins D0 to D7, in both directions.' });
+
+/* ---------- ALU ---------- */
+node('ain', 750, 400, 230, 65, 'A input', { kind: 'alu', view: 'alu', val: 'ain', fmt: 'h2',
+  desc: 'First operand latch. Values arrive here from A, X, Y or S over the source bus.' });
+node('bin', 1040, 400, 230, 65, 'B input', { kind: 'alu', view: 'alu', val: 'bin', fmt: 'h2',
+  desc: 'Second operand latch. Usually the byte just read from memory.' });
+node('binv', 1040, 500, 160, 45, 'Invert', { kind: 'alu', view: 'alu', val: 'binvtxt',
+  desc: 'For subtraction and compare, B is inverted first. Then A - B is done as A + (not B) + 1 in the same adder.' });
+node('logic', 750, 575, 170, 60, 'Logic', { kind: 'alu', view: 'alu', val: 'logicop',
+  desc: 'Bitwise AND, ORA (or) and EOR (exclusive or) in one block.' });
+node('shift', 1080, 575, 190, 60, 'Shifter', { kind: 'alu', view: 'alu', val: 'shiftop',
+  desc: 'Moves every bit one place left or right. ASL and LSR shift in a zero, ROL and ROR shift in the carry flag.' });
+node('adder', 750, 670, 520, 90, 'Adder', { kind: 'alu', view: 'adder', custom: 'adder',
+  desc: 'Eight one-bit full adders in a row. Each cell passes its carry to the next, so a carry has to ripple from bit 0 to bit 7. Watch it move when you add $FF and 1. In decimal mode a correction step turns the binary result into BCD.' });
+node('res', 750, 790, 520, 60, 'Result', { kind: 'alu', view: 'alu', val: 'res', fmt: 'h2',
+  desc: 'Holds the ALU output until it is sent back over the data bus to a register or to memory.' });
+
+/* ---------- TIA ---------- */
+node('tia_dec', 1540, 120, 240, 70, 'Address decode', { sub: 'A12=0 and A7=0', kind: 'chip', view: 'tia',
+  desc: 'The TIA answers when address bit 12 is 0 and bit 7 is 0, so its registers sit at $00 to $3F (and mirrors).' });
+node('tia_regs', 1540, 220, 380, 250, 'Write registers', { kind: 'chip', view: 'tia', custom: 'tiaregs',
+  desc: 'Most TIA registers are write-only. Poking a value here sets a colour, a playfield pattern or a sprite shape for the beam to use on the following pixels.' });
+node('tia_clk', 1980, 120, 300, 90, 'Colour clock', { kind: 'chip', view: 'tia', custom: 'tiaclk',
+  desc: 'The TIA counts 228 colour clocks per scanline, 3 for every CPU cycle. The first 68 are horizontal blank, the remaining 160 are visible pixels.' });
+node('tia_wsync', 1980, 240, 300, 70, 'WSYNC and RDY', { sub: 'halts the CPU', kind: 'chip', view: 'tia',
+  desc: 'Writing any value to WSYNC pulls the CPU ready line low. The CPU freezes until the beam reaches the end of the scanline, which is how programs stay in step with the picture.' });
+node('tia_gen', 1980, 340, 300, 130, 'Object generators', { sub: 'playfield, players', kind: 'chip', view: 'tia', val: 'tiaobj',
+  desc: 'For each pixel, the playfield and the two player sprites decide whether they are drawn. Missiles and ball are stored by this simulator but not drawn.' });
+node('tia_mux', 1540, 520, 380, 80, 'Priority and palette', { kind: 'chip', view: 'tia',
+  desc: 'Picks the winning object for each pixel and looks up its colour in the 128-colour palette.' });
+node('tia_out', 1980, 520, 300, 80, 'Video out', { kind: 'chip', view: 'tia', custom: 'tiaout',
+  desc: 'The colour signal that goes to the television. The swatch shows the current background colour.' });
+
+/* ---------- RIOT ---------- */
+node('riot_dec', 1540, 890, 240, 70, 'Address decode', { sub: 'A12=0, A7=1', kind: 'chip', view: 'riot',
+  desc: 'The RIOT answers when A12 is 0 and A7 is 1. A9 then chooses RAM (0) or the timer and I/O ports (1).' });
+node('riot_ram', 1540, 990, 380, 180, 'RAM', { sub: '128 bytes', kind: 'chip', view: 'ram', custom: 'ram',
+  desc: 'All the memory a 2600 program gets: 128 bytes. The zero page and the stack both live here.' });
+node('riot_timer', 1980, 890, 300, 120, 'Interval timer', { kind: 'chip', view: 'riot', custom: 'timer',
+  desc: 'Loaded with a start value, it counts down once every 1, 8, 64 or 1024 CPU cycles depending on which address you write. After it reaches zero it counts down every cycle.' });
+node('riot_io', 1980, 1040, 300, 130, 'I/O ports', { kind: 'chip', view: 'riot', custom: 'io',
+  desc: 'SWCHA reads the joysticks and paddles. SWCHB reads the console switches (reset, select, colour, difficulty).' });
+
+/* ---------- ROM ---------- */
+node('rom_arr', 100, 1180, 1180, 230, 'Cartridge ROM', { kind: 'chip', view: 'rom', custom: 'rom',
+  desc: 'The game itself: 4096 bytes mapped at $F000. Address bit 12 selects it. The window shows the bytes around the last address fetched.' });
+
+/* ---------- frames ---------- */
+L.push({ id: 'f_cpu', x: 60, y: 60, w: 1300, h: 1010, title: 'MOS 6507', sub: 'CPU', big: 'CPU', view: 'cpu', kind: 'addr',
+  desc: 'The 6507 is a 6502 in a smaller package. It has 13 address lines instead of 16 and no interrupt pins, which is all a 2600 needs.' });
+L.push({ id: 'f_tia', x: 1500, y: 60, w: 840, h: 700, title: 'TIA', sub: 'Television Interface Adaptor', big: 'TIA', view: 'tia', kind: 'chip',
+  desc: 'The TIA generates the picture, one scanline at a time, while the CPU feeds it new values just in time. There is no frame buffer.' });
+L.push({ id: 'f_riot', x: 1500, y: 830, w: 840, h: 610, title: 'RIOT 6532', sub: 'RAM, I/O, Timer', big: 'RIOT', view: 'riot', kind: 'chip',
+  desc: 'One chip that provides the console\'s 128 bytes of RAM, the two input ports and an interval timer.' });
+L.push({ id: 'f_rom', x: 60, y: 1120, w: 1300, h: 320, title: 'Cartridge', sub: '4 KB ROM', big: 'ROM', view: 'rom', kind: 'chip',
+  desc: 'The cartridge plugs straight into the CPU bus. The program runs directly out of ROM.' });
+L.push({ id: 'f_alu', x: 720, y: 370, w: 600, h: 510, title: 'ALU', sub: 'Arithmetic Logic Unit', big: '', tpos: 'br', view: 'alu', kind: 'alu',
+  desc: 'The arithmetic logic unit: adder, logic and shifter, fed by two operand latches.' });
+
+/* ---------- wiring: CPU ---------- */
+edge('e_pc_ar', 'addr', [[400, 140], [470, 140]]);
+edge('e_pc_inc', 'addr', [[250, 210], [250, 255]]);
+edge('e_inc_pc', 'addr', [[100, 288], [78, 288], [78, 165], [100, 165]]);
+edge('e_db_pc', 'data', [[435, 190], [400, 190]]);
+edge('e_db_ar', 'data', [[435, 190], [470, 190]]);
+edge('e_ar_pin', 'addr', [[770, 165], [1420, 165]], { label: 'A0-A12', lx: 1040, ly: 148 });
+edge('e_db', 'data', [[435, 190], [435, 955]]);
+edge('e_db_ir', 'data', [[435, 385], [400, 385]]);
+edge('e_ir_dec', 'ctl', [[250, 460], [250, 490]]);
+edge('e_dec_tim', 'ctl', [[250, 690], [250, 720]]);
+edge('e_ctl', 'ctl', [[250, 830], [250, 1015], [900, 1015], [900, 880]]);
+edge('e_db_a', 'data', [[435, 410], [470, 410]]);
+edge('e_db_x', 'data', [[435, 510], [470, 510]]);
+edge('e_db_y', 'data', [[435, 610], [470, 610]]);
+edge('e_db_s', 'data', [[435, 710], [470, 710]]);
+edge('e_db_p', 'data', [[435, 820], [470, 820]]);
+edge('e_a_sb', 'data', [[650, 410], [685, 410]]);
+edge('e_x_sb', 'data', [[650, 510], [685, 510]]);
+edge('e_y_sb', 'data', [[650, 610], [685, 610]]);
+edge('e_s_sb', 'data', [[650, 710], [685, 710]]);
+edge('e_sb', 'data', [[685, 410], [685, 710]]);
+edge('e_sb_ain', 'data', [[685, 435], [750, 435]]);
+edge('e_db_alub', 'data', [[435, 340], [1155, 340], [1155, 400]]);
+edge('e_db_buf', 'data', [[435, 955], [470, 955]]);
+edge('e_data_pin', 'data', [[770, 955], [1385, 955]], { label: 'D0-D7', lx: 1040, ly: 938 });
+edge('e_rdy', 'ctl', [[1980, 290], [1440, 290], [1440, 1040], [80, 1040], [80, 775], [100, 775]], { label: 'RDY', lx: 1400, ly: 1030 });
+
+/* ---------- wiring: ALU ---------- */
+edge('e_ain_logic', 'alu', [[800, 465], [800, 575]]);
+edge('e_ain_add', 'alu', [[950, 465], [950, 670]]);
+edge('e_bin_binv', 'alu', [[1120, 465], [1120, 500]]);
+edge('e_binv_add', 'alu', [[1060, 545], [1060, 670]]);
+edge('e_bin_logic', 'alu', [[1040, 432], [1000, 432], [1000, 605], [920, 605]]);
+edge('e_bin_shift', 'alu', [[1240, 465], [1240, 575]]);
+edge('e_logic_res', 'alu', [[750, 605], [735, 605], [735, 820], [750, 820]]);
+edge('e_add_res', 'alu', [[1010, 760], [1010, 790]]);
+edge('e_shift_res', 'alu', [[1270, 605], [1300, 605], [1300, 820], [1270, 820]]);
+edge('e_res_db', 'data', [[1020, 850], [1020, 892], [435, 892]]);
+edge('e_alu_p', 'alu', [[800, 850], [800, 866], [680, 866], [680, 830], [650, 830]]);
+edge('e_p_cin', 'alu', [[650, 795], [700, 795], [700, 727], [750, 727]]);
+for (let b = 0; b < 8; b++) {
+  const cx = 770 + b * 62;
+  if (b < 7) edge('k' + b, 'alu', [[cx + 52, 727], [cx + 62, 727]], { thick: true });
+}
+edge('k7', 'alu', [[1256, 727], [1268, 727]], { thick: true });
+edge('k_in', 'alu', [[750, 727], [770, 727]], { thick: true });
+
+/* ---------- wiring: buses and chips ---------- */
+edge('e_a_up', 'addr', [[1420, 165], [1420, 925]]);
+edge('e_a_rom', 'addr', [[1420, 925], [1420, 1250], [1280, 1250]]);
+edge('e_a_tia', 'addr', [[1420, 165], [1540, 165]]);
+edge('e_a_riot', 'addr', [[1420, 925], [1540, 925]]);
+edge('e_d_up', 'data', [[1385, 955], [1385, 330]]);
+edge('e_d_mid', 'data', [[1385, 955], [1385, 1200]]);
+edge('e_d_low', 'data', [[1385, 1200], [1385, 1340], [1280, 1340]]);
+edge('e_d_tia', 'data', [[1385, 330], [1540, 330]]);
+edge('e_d_riot', 'data', [[1385, 1200], [1950, 1200], [1950, 950]]);
+edge('e_lbus_ram', 'data', [[1950, 1080], [1920, 1080]]);
+edge('e_lbus_timer', 'data', [[1950, 950], [1980, 950]]);
+edge('e_lbus_io', 'data', [[1950, 1105], [1980, 1105]]);
+edge('e_tia_dec_regs', 'ctl', [[1660, 190], [1660, 220]]);
+edge('e_regs_gen', 'chip', [[1920, 400], [1980, 400]]);
+edge('e_regs_wsync', 'chip', [[1920, 262], [1980, 262]]);
+edge('e_clk_wsync', 'chip', [[2130, 210], [2130, 240]]);
+edge('e_clk_gen', 'chip', [[2280, 165], [2310, 165], [2310, 405], [2280, 405]]);
+edge('e_gen_mux', 'chip', [[2130, 470], [2130, 495], [1850, 495], [1850, 520]]);
+edge('e_regs_mux', 'chip', [[1650, 470], [1650, 520]]);
+edge('e_mux_out', 'chip', [[1920, 560], [1980, 560]]);
+edge('e_dec_ram', 'ctl', [[1660, 960], [1660, 990]]);
+edge('e_dec_timer', 'ctl', [[1780, 905], [1980, 905]]);
+edge('e_tim_io', 'ctl', [[2130, 1010], [2130, 1040]]);
+
+const LABELS = [];
+
+/* ---------- camera targets ---------- */
+const VIEWS = {
+  sys: { x: 0, y: 0, w: 2400, h: 1500, name: 'System' },
+  cpu: { x: 30, y: 30, w: 1370, h: 1060, name: 'CPU' },
+  addr: { x: 60, y: 90, w: 740, h: 260, name: 'Addressing' },
+  ctrl: { x: 70, y: 340, w: 380, h: 520, name: 'Decode' },
+  regs: { x: 410, y: 340, w: 300, h: 560, name: 'Registers' },
+  alu: { x: 690, y: 320, w: 660, h: 580, name: 'ALU' },
+  adder: { x: 730, y: 640, w: 560, h: 140, name: 'Adder' },
+  tia: { x: 1490, y: 50, w: 870, h: 730, name: 'TIA' },
+  riot: { x: 1490, y: 820, w: 870, h: 630, name: 'RIOT' },
+  ram: { x: 1520, y: 970, w: 420, h: 220, name: 'RAM' },
+  rom: { x: 40, y: 1100, w: 1360, h: 360, name: 'Cartridge' }
+};
+
+const api = { N, E, L, LABELS, VIEWS, W: 2400, H: 1500 };
+if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LAYOUT = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+/* Turns a machine trace into animation phases.
+   phase = { on:[[id, startFraction, reversed]], sets:[[fraction, displayChanges]], text, focus, dur, cyc, kind } */
+(function (root) {
+const hex2 = v => (v & 255).toString(16).toUpperCase().padStart(2, '0');
+const hex4 = v => (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+
+const CHIP_NAME = { rom: 'cartridge ROM', tia: 'TIA', ram: 'RIOT RAM', timer: 'RIOT timer', io: 'RIOT I/O' };
+const CHIP_VIEW = { rom: 'rom', tia: 'tia', ram: 'ram', timer: 'riot', io: 'riot' };
+const CHIP_ADDR = { tia: ['e_a_tia'], rom: ['e_a_up', 'e_a_rom'], ram: ['e_a_up', 'e_a_riot'], timer: ['e_a_up', 'e_a_riot'], io: ['e_a_up', 'e_a_riot'] };
+const CHIP_DATA = { rom: ['e_d_low', 'e_d_mid'], tia: ['e_d_tia', 'e_d_up'], ram: ['e_lbus_ram', 'e_d_riot', 'e_d_mid'], timer: ['e_lbus_timer', 'e_d_riot', 'e_d_mid'], io: ['e_lbus_io', 'e_d_riot', 'e_d_mid'] };
+function chipNodes(chip, addr) {
+  switch (chip) {
+    case 'rom': return ['f_rom', 'rom_arr', 'romcur'];
+    case 'tia': return ['f_tia', 'tia_dec', 'e_tia_dec_regs', 'tia_regs'];
+    case 'ram': return ['f_riot', 'riot_dec', 'e_dec_ram', 'riot_ram', 'ram_' + (addr & 0x7F)];
+    case 'timer': return ['f_riot', 'riot_dec', 'e_dec_timer', 'riot_timer'];
+    default: return ['f_riot', 'riot_dec', 'e_dec_timer', 'e_tim_io', 'riot_io'];
+  }
+}
+const TIA_EXTRA = (reg) => {
+  if (!reg) return [];
+  if (reg === 'WSYNC') return ['e_regs_wsync', 'tia_wsync'];
+  if (/^RES/.test(reg)) return ['e_regs_gen', 'tia_gen', 'e_clk_gen', 'tia_clk'];
+  if (/^COL/.test(reg)) return ['e_regs_mux', 'tia_mux', 'e_mux_out', 'tia_out'];
+  if (/^(PF|GRP|NUSIZ|CTRLPF|REFP|ENA|ENAB)/.test(reg)) return ['e_regs_gen', 'tia_gen'];
+  if (/^(VSYNC|VBLANK)/.test(reg)) return ['e_mux_out', 'tia_out'];
+  return [];
+};
+
+/* address then data, in either direction, staggered over the phase */
+function accessOn(on, chip, addr, dir, t0) {
+  const add = (id, t, rev) => on.push([id, t, !!rev]);
+  add('ar', t0); add('e_ar_pin', t0 + 0.05);
+  CHIP_ADDR[chip].forEach((id, i) => add(id, t0 + 0.12 + i * 0.04));
+  chipNodes(chip, addr).forEach((id, i) => add(id, t0 + 0.28 + i * 0.02));
+  const d = CHIP_DATA[chip];
+  if (dir === 'r') {
+    d.forEach((id, i) => add(id, t0 + 0.5 + i * 0.05, true));
+    add('e_data_pin', t0 + 0.5 + d.length * 0.05, true);
+    add('buf', t0 + 0.7); add('e_db_buf', t0 + 0.75, true); add('e_db', t0 + 0.8, true);
+  } else {
+    add('e_db', t0 + 0.4); add('e_db_buf', t0 + 0.45); add('buf', t0 + 0.5); add('e_data_pin', t0 + 0.55);
+    d.slice().reverse().forEach((id, i) => add(id, t0 + 0.62 + i * 0.05));
+  }
+}
+function ripple(a, b, c) {
+  const cs = []; let res = 0;
+  for (let i = 0; i < 8; i++) {
+    const ai = (a >> i) & 1, bi = (b >> i) & 1; const s = ai ^ bi ^ c, co = (ai & bi) | (ai & c) | (bi & c);
+    res |= s << i; c = co; cs.push(co);
+  }
+  return { res, cs };
+}
+function adderOn(on, cs, t0, span, cin) {
+  const add = (id, t, rev) => on.push([id, t, !!rev]);
+  if (cin) { add('p', t0 - 0.1); add('e_p_cin', t0 - 0.05); add('k_in', t0); }
+  for (let b = 0; b < 8; b++) {
+    const t = t0 + span * b / 8;
+    add('cell' + b, t);
+    if (cs[b]) add('k' + b, t + span / 16);
+  }
+}
+const REGN = { a: 'A', x: 'X', y: 'Y', s: 'S', p: 'P' };
+const flagsTxt = fl => fl ? ' Flags ' + fl.split('').join(' ') + ' updated.' : '';
+
+function buildPhases(info, tr) {
+  const phases = []; let cyc = 0;
+  const mode = info.mode;
+  for (let i = 0; i < tr.length; i++) {
+    const e = tr[i], nxt = tr[i + 1];
+    const on = [], sets = []; let text = '', focus = 'cpu', dur = 1, kind = 'cpu';
+    const add = (id, t, rev) => on.push([id, t, !!rev]);
+    switch (e.t) {
+      case 'fetch': {
+        cyc++; focus = 'cpu'; kind = 'fetch';
+        add('pc', 0); add('e_pc_ar', 0.05); add('ar', 0.1);
+        accessOn(on, e.chip, e.addr, 'r', 0);
+        add('e_pc_inc', 0.3); add('inc', 0.36); add('e_inc_pc', 0.42);
+        sets.push([0, { ar: e.addr }], [0.45, { pc: e.set.pc }], [0.6, { db: e.val }]);
+        if (e.chip === 'rom') sets.push([0.28, { romAddr: e.addr & 0xFFF }]);
+        if (e.kind === 'op') {
+          add('e_db_ir', 0.86); add('ir', 0.9); add('e_ir_dec', 0.93); add('dec', 0.95); add('tim', 0.97);
+          sets.push([0.9, { ir: e.val, opinfo: true }]);
+          text = 'Fetch the opcode $' + hex2(e.val) + ' from $' + hex4(e.addr) + '. It goes into the instruction register and the decoder takes over.';
+        } else {
+          if (mode === 'rel') { add('e_db_alub', 0.86); add('bin', 0.92); }
+          else if (mode !== 'imm') { add('e_db_ar', 0.86); }
+          text = 'Fetch operand byte $' + hex2(e.val) + ' from $' + hex4(e.addr) + (mode === 'imm' ? '. It is the value itself.' : mode === 'rel' ? '. It is the branch offset.' : '. It is part of an address.');
+        }
+        break;
+      }
+      case 'read': {
+        cyc++; focus = CHIP_VIEW[e.chip]; kind = 'mem';
+        accessOn(on, e.chip, e.addr, 'r', 0);
+        if (e.tag === 'ptr') { add('e_db_ar', 0.9); }
+        if (e.tag === 'vector') { add('e_db_pc', 0.9); add('pc', 0.95); }
+        sets.push([0, { ar: e.addr }], [0.6, { db: e.val }]);
+        if (e.chip === 'rom') sets.push([0.28, { romAddr: e.addr & 0xFFF }]);
+        const what = e.tag === 'stack' ? 'Pull' : e.tag === 'ptr' ? 'Read pointer byte' : e.tag === 'vector' ? 'Read vector byte' : 'Read';
+        text = what + ' $' + hex2(e.val) + ' from $' + hex4(e.addr) + ' (' + CHIP_NAME[e.chip] + (e.chip === 'io' || e.chip === 'timer' ? '' : '') + ').';
+        break;
+      }
+      case 'write': {
+        cyc++; focus = CHIP_VIEW[e.chip]; kind = 'mem';
+        accessOn(on, e.chip, e.addr, 'w', 0);
+        if (e.chip === 'tia') { if (e.reg) add('tr_' + e.reg, 0.85); TIA_EXTRA(e.reg).forEach((id, k) => add(id, 0.85 + k * 0.02)); }
+        const s = { ar: e.addr, db: e.val };
+        sets.push([0, { ar: e.addr }]);
+        if (e.chip === 'ram') sets.push([0.85, { ramw: [e.addr & 0x7F, e.val] }]);
+        if (e.chip === 'tia') sets.push([0.85, { tiaw: [e.addr & 0x3F, e.val] }]);
+        const where = e.chip === 'tia' && e.reg ? e.reg + ' (TIA $' + hex2(e.addr & 0x3F) + ')' : '$' + hex4(e.addr) + ' (' + CHIP_NAME[e.chip] + ')';
+        text = (e.tag === 'stack' ? 'Push' : 'Write') + ' $' + hex2(e.val) + ' to ' + where + '.' + (e.reg === 'WSYNC' ? ' The CPU will now be halted until the scanline ends.' : '');
+        break;
+      }
+      case 'ea': {
+        focus = 'alu'; kind = 'alu';
+        const r = ripple(e.base & 255, e.idxv, 0);
+        const rg = e.idx.toLowerCase();
+        add(rg, 0); add('e_' + rg + '_sb', 0.06); add('e_sb', 0.12); add('e_sb_ain', 0.16); add('ain', 0.2);
+        add('e_db_alub', 0.1); add('bin', 0.2);
+        add('e_ain_add', 0.28); add('e_bin_binv', 0.26); add('binv', 0.3); add('e_binv_add', 0.34); add('adder', 0.36);
+        adderOn(on, r.cs, 0.38, 0.4, 0);
+        add('e_add_res', 0.8); add('res', 0.84); add('e_res_db', 0.88); add('e_db', 0.92); add('e_db_ar', 0.95); add('ar', 0.98);
+        sets.push([0.05, { ain: e.idxv, bin: e.base & 255, binvtxt: 'off' }], [0.7, { res: (e.base + e.idxv) & 255 }], [0.95, { ar: e.addr & 0x1FFF }]);
+        text = 'Effective address: $' + hex4(e.base) + ' + ' + e.idx + ' ($' + hex2(e.idxv) + ') = $' + hex4(e.addr) + (e.cross ? ' (the low byte carried into the high byte).' : '.');
+        break;
+      }
+      case 'alu': {
+        focus = e.unit === 'add' ? 'alu' : 'alu'; kind = 'alu';
+        const srcReg = e.src === 'A' ? 'a' : e.src === 'X' ? 'x' : e.src === 'Y' ? 'y' : null;
+        const constB = /^(INX|INY|DEX|DEY)$/.test(e.op);
+        if (e.unit === 'shift') {
+          if (e.src === 'A') { add('a', 0); add('e_db_a', 0.05, true); add('e_db', 0.1); }
+          add('e_db_alub', 0.15); add('bin', 0.22);
+          add('e_bin_shift', 0.3); add('shift', 0.36);
+          if (e.useCin) { add('p', 0.3); add('e_p_cin', 0.34); }
+          add('e_shift_res', 0.6); add('res', 0.68);
+          sets.push([0.2, { bin: e.a, ain: e.a, shiftop: e.op }], [0.68, { res: e.res }]);
+        } else if (e.unit === 'logic') {
+          if (srcReg) { add(srcReg, 0); add('e_' + srcReg + '_sb', 0.05); add('e_sb', 0.1); add('e_sb_ain', 0.14); add('ain', 0.2); }
+          add('e_db_alub', 0.1); add('bin', 0.2);
+          add('e_ain_logic', 0.3); add('e_bin_logic', 0.3); add('logic', 0.4);
+          add('e_logic_res', 0.62); add('res', 0.7);
+          sets.push([0.2, { ain: e.a, bin: e.b, logicop: e.op }], [0.7, { res: e.res }]);
+        } else {
+          if (srcReg) { add(srcReg, 0); add('e_' + srcReg + '_sb', 0.05); add('e_sb', 0.1); add('e_sb_ain', 0.14); add('ain', 0.2); }
+          else { add('e_db_alub', 0.05); }
+          if (constB) { add('dec', 0.05); add('e_ctl', 0.1); }
+          else if (srcReg) { add('e_db_alub', 0.1); }
+          add('bin', 0.2);
+          add('e_ain_add', 0.28); add('e_bin_binv', 0.26); add('binv', 0.3); add('e_binv_add', 0.34); add('adder', 0.36);
+          if (e.inv) add('binv', 0.3);
+          if (e.dec) add('bcd', 0.75);
+          adderOn(on, e.cs, 0.38, 0.4, e.useCin && e.cin);
+          add('e_add_res', 0.8); add('res', 0.84);
+          sets.push([0.2, { ain: e.a, bin: e.b, binvtxt: e.inv ? 'ON' : 'off' }], [0.84, { res: e.res }]);
+        }
+        const dstReg = e.dst === 'a' || e.dst === 'x' || e.dst === 'y' ? e.dst : null;
+        if (dstReg) { add('e_res_db', 0.88); add('e_db', 0.9); add('e_db_' + dstReg, 0.93); add(dstReg, 0.96); }
+        else if (e.dst === 'mem') { add('e_res_db', 0.88); add('e_db', 0.92); }
+        add('e_alu_p', 0.9); add('p', 0.96);
+        const late = { p: e.set.p }; if (dstReg) late[dstReg] = e.res;
+        sets.push([0.95, late]);
+        const opn = e.op, hx = v => '$' + hex2(v);
+        if (e.unit === 'add') {
+          if (/^(CMP|CPX|CPY)$/.test(opn)) text = opn + ': ' + hx(e.a) + ' - ' + hx(e.bRaw) + ' (subtract, keep flags only, result thrown away).';
+          else if (opn === 'SBC') text = 'SBC: ' + hx(e.a) + ' - ' + hx(e.bRaw) + ' - (1 - C) = ' + hx(e.res) + '. B is inverted and the carry is the borrow.';
+          else if (opn === 'ADC') text = 'ADC: ' + hx(e.a) + ' + ' + hx(e.b) + ' + C(' + e.cin + ') = ' + hx(e.res) + (e.cout ? ', carry out = 1.' : ', carry out = 0.') + (e.dec ? ' Decimal mode: the result is BCD-corrected.' : '');
+          else text = opn + ': ' + hx(e.a) + ' ' + (/^(DEC|DEX|DEY)$/.test(opn) ? '- 1' : '+ 1') + ' = ' + hx(e.res) + '.';
+        } else if (e.unit === 'logic') {
+          text = opn === 'BIT' ? 'BIT: ' + hx(e.a) + ' AND ' + hx(e.b) + ' sets Z; bits 7 and 6 of the memory byte are copied into N and V.' : opn + ': ' + hx(e.a) + ' ' + (opn === 'AND' ? 'AND' : opn === 'ORA' ? 'OR' : 'XOR') + ' ' + hx(e.b) + ' = ' + hx(e.res) + '.';
+        } else text = opn + ': ' + hx(e.a) + ' becomes ' + hx(e.res) + ', carry out = ' + e.cout + '.';
+        text += flagsTxt(e.fl);
+        if (nxt && nxt.t === 'wb') { i++; }
+        break;
+      }
+      case 'wb': continue;
+      case 'load': {
+        kind = 'cpu';
+        add('e_db_' + e.reg, 0.15); add(e.reg, 0.35);
+        if (!e.noflags) { add('e_db_p', 0.4); add('p', 0.55); }
+        sets.push([0, { db: e.val }], [0.35, { [e.reg]: e.val }]);
+        if (!e.noflags) sets.push([0.55, { p: e.set.p }]);
+        text = 'Load ' + REGN[e.reg] + ' with $' + hex2(e.val) + (e.noflags ? '.' : ' and update the N and Z flags.');
+        dur = 0.8;
+        break;
+      }
+      case 'regout': {
+        const r = e.reg;
+        add(r, 0); add('e_db_' + r, 0.15, true); add('e_db', 0.35);
+        sets.push([0.35, { db: e.val }]);
+        text = (r === 'pc' ? 'PC' : REGN[r]) + ' drives $' + hex2(e.val) + ' onto the data bus.';
+        dur = 0.65;
+        break;
+      }
+      case 'xfer': {
+        add(e.from, 0); add('e_db_' + e.from, 0.15, true); add('e_db', 0.35);
+        text = 'Copy ' + REGN[e.from] + ' onto the internal bus.';
+        dur = 0.6;
+        break;
+      }
+      case 'sreg': {
+        add('s', 0); add('e_s_sb', 0.06); add('e_sb', 0.12); add('e_sb_ain', 0.16); add('ain', 0.2);
+        add('e_ain_add', 0.3); add('adder', 0.4); add('e_add_res', 0.55); add('res', 0.62);
+        add('e_res_db', 0.7); add('e_db', 0.76); add('e_db_s', 0.84); add('s', 0.9);
+        sets.push([0.15, { ain: e.s - e.dir & 255, res: e.s }], [0.9, { s: e.s }]);
+        text = 'Stack pointer ' + (e.dir < 0 ? 'decrements' : 'increments') + ' to $' + hex2(e.s) + '.';
+        dur = 0.9; focus = 'regs';
+        break;
+      }
+      case 'idle': {
+        if (nxt && nxt.t === 'ea') { cyc += e.n; continue; }
+        cyc += e.n;
+        add('tim', 0); add('dec', 0.1);
+        text = e.text || 'Internal cycle.';
+        dur = 0.5; kind = 'idle';
+        break;
+      }
+      case 'branch': {
+        add('p', 0); add('dec', 0.3); add('tim', 0.5);
+        text = e.name + ': the flag test ' + (e.taken ? 'passes, so the branch is taken.' : 'fails, so execution falls through to the next instruction.');
+        dur = 0.7;
+        break;
+      }
+      case 'jump': {
+        if (e.viaAdder) {
+          ['e_db_alub', 'bin', 'e_bin_binv', 'binv', 'e_binv_add', 'adder', 'e_add_res', 'res', 'e_res_db', 'e_db', 'e_db_pc', 'pc'].forEach((id, k) => add(id, k * 0.075));
+          focus = 'alu';
+          text = 'Add the signed offset to PC: the new address is $' + hex4(e.target) + '.';
+        } else {
+          add('e_db_pc', 0.2); add('pc', 0.4);
+          text = 'PC is loaded with $' + hex4(e.target) + '.';
+        }
+        sets.push([0.9, { pc: e.target }]);
+        break;
+      }
+      case 'flag': {
+        add('dec', 0); add('tim', 0.2); add('p', 0.5);
+        sets.push([0.5, { p: e.set.p }]);
+        text = 'Flag change: ' + e.text + '.';
+        dur = 0.6;
+        break;
+      }
+      case 'halt': {
+        add('tia_wsync', 0); add('f_tia', 0); add('e_rdy', 0.1); add('tim', 0.6); add('f_cpu', 0.6);
+        text = 'WSYNC: RDY is held low, so the CPU sits idle for ' + e.n + ' cycles (' + (e.n * 3) + ' colour clocks) until the beam reaches the end of the scanline.';
+        dur = 1.3; focus = 'tia'; kind = 'halt';
+        break;
+      }
+      default: continue;
+    }
+    phases.push({ on, sets, text, focus, dur, cyc, kind });
+  }
+  return phases;
+}
+const api = { buildPhases };
+if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PHASES = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<script>
+/* 2600 Chip Explorer: scene, camera, sequencer, panels. */
+(function () {
+'use strict';
+const A = window.Atari, LAY = window.LAYOUT, DEMOS = window.DEMOS, PH = window.PHASES;
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (s, r) => (r || document).querySelector(s);
+const hex2 = A.hex2, hex4 = A.hex4;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function S(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const setT = (el, s) => { if (el.__t !== s) { el.__t = s; el.textContent = s; } };
+const setC = (el, c, on) => { on = !!on; if (el.__c !== on) { el.__c = on; el.classList.toggle(c, on); } };
+
+const svg = $('#stage');
+const M = new A.Machine();
+const disp = { pc: 0, ar: 0, db: 0, ir: undefined, a: 0, x: 0, y: 0, s: 0, p: 0, ain: undefined, bin: undefined, res: undefined,
+  binvtxt: '', logicop: '', shiftop: '', mnem: '', op: null, tcyc: 0, ram: new Uint8Array(128), tia: new Uint8Array(64), romAddr: 0 };
+const MODE = { imp: 'implied', acc: 'accumulator', imm: 'immediate', zp: 'zero page', zpx: 'zero page,X', zpy: 'zero page,Y', abs: 'absolute', abx: 'absolute,X', aby: 'absolute,Y', ind: 'indirect', izx: '(indirect,X)', izy: '(indirect),Y', rel: 'relative' };
+const INS_DESC = { LDA: 'Load accumulator', LDX: 'Load X', LDY: 'Load Y', STA: 'Store accumulator', STX: 'Store X', STY: 'Store Y', ADC: 'Add with carry', SBC: 'Subtract with carry', AND: 'Logical AND', ORA: 'Logical OR', EOR: 'Exclusive OR', CMP: 'Compare with A', CPX: 'Compare with X', CPY: 'Compare with Y', BIT: 'Test bits', ASL: 'Shift left', LSR: 'Shift right', ROL: 'Rotate left', ROR: 'Rotate right', INC: 'Increment memory', DEC: 'Decrement memory', INX: 'Increment X', INY: 'Increment Y', DEX: 'Decrement X', DEY: 'Decrement Y', TAX: 'Copy A to X', TAY: 'Copy A to Y', TXA: 'Copy X to A', TYA: 'Copy Y to A', TSX: 'Copy S to X', TXS: 'Copy X to S', CLC: 'Clear carry', SEC: 'Set carry', CLD: 'Clear decimal mode', SED: 'Set decimal mode', CLI: 'Clear interrupt disable', SEI: 'Set interrupt disable', CLV: 'Clear overflow', NOP: 'No operation', PHA: 'Push A', PHP: 'Push flags', PLA: 'Pull A', PLP: 'Pull flags', JMP: 'Jump', JSR: 'Jump to subroutine', RTS: 'Return from subroutine', RTI: 'Return from interrupt', BRK: 'Break', BCC: 'Branch if carry clear', BCS: 'Branch if carry set', BEQ: 'Branch if zero', BNE: 'Branch if not zero', BMI: 'Branch if negative', BPL: 'Branch if positive', BVC: 'Branch if overflow clear', BVS: 'Branch if overflow set' };
+
+/* ================= scene ================= */
+const REG = {}, updaters = [], INFO = {};
+const gWorld = S('g', null, svg);
+const gFrames = S('g', null, gWorld), gOv = S('g', null, gWorld), gEdges = S('g', null, gWorld), gNodes = S('g', null, gWorld), gLabels = S('g', null, gWorld);
+let romVer = 0;
+
+LAY.L.forEach(f => {
+  const g = S('g', { class: 'frame k-' + f.kind, 'data-id': f.id, 'data-view': f.view }, gFrames);
+  S('rect', { class: 'fb', x: f.x, y: f.y, width: f.w, height: f.h, rx: 18 }, g);
+  const br = f.tpos === 'br';
+  const t = S('text', br ? { class: 'ft', x: f.x + f.w - 14, y: f.y + f.h - 10, 'text-anchor': 'end', style: 'font-size:22px' } : { class: 'ft', x: f.x + 22, y: f.y + 40 }, g, f.title);
+  S('tspan', { class: 'fs', dx: 12, style: br ? 'font-size:17px' : '' }, t, f.sub);
+  REG[f.id] = { el: g };
+  INFO[f.id] = { label: f.title + ' ' + f.sub, desc: f.desc, kind: f.kind };
+});
+LAY.E.forEach(e => {
+  const g = S('g', { class: 'edge k-' + e.kind + (e.thick ? ' thick' : '') }, gEdges);
+  const d = 'M' + e.pts.map(p => p[0] + ' ' + p[1]).join(' L');
+  S('path', { class: 'w', d }, g); S('path', { class: 'g', d }, g); S('path', { class: 'f', d }, g);
+  if (e.label) S('text', { class: 'el', x: e.lx, y: e.ly }, gLabels, e.label);
+  REG[e.id] = { el: g };
+});
+LAY.LABELS.forEach(l => S('text', { class: 'el', x: l.x, y: l.y, 'text-anchor': 'end', style: 'font-size:18px;letter-spacing:.08em;text-transform:uppercase;opacity:.8' }, gLabels, l.t));
+
+const BUILD = {
+  dec(g, n) {
+    const mn = S('text', { class: 'bigmn', x: n.x + 16, y: n.y + 100 }, g, '');
+    const md = S('text', { class: 'ns', x: n.x + 16, y: n.y + 136 }, g, '');
+    const cy = S('text', { class: 'ns', x: n.x + 16, y: n.y + 166 }, g, '');
+    updaters.push(() => { const o = disp.op; setT(mn, o ? o.m : '---'); setT(md, o ? MODE[o.mode] : ''); setT(cy, o ? o.cycles + ' cycles, ' + o.len + (o.len > 1 ? ' bytes' : ' byte') : ''); });
+  },
+  tim(g, n) {
+    const pips = [];
+    for (let i = 0; i < 7; i++) {
+      pips.push(S('circle', { class: 'pip', cx: n.x + 36 + i * 38, cy: n.y + 66, r: 13 }, g));
+      S('text', { class: 'sm d1', x: n.x + 36 + i * 38, y: n.y + 99, 'text-anchor': 'middle' }, g, 'T' + i);
+    }
+    updaters.push(() => { for (let i = 0; i < 7; i++) { setC(pips[i], 'done', i < disp.tcyc - 1); setC(pips[i], 'now', i === disp.tcyc - 1); } });
+  },
+  flags(g, n) {
+    const L = 'NV-BDIZC', rs = [], ts = [];
+    for (let i = 0; i < 8; i++) {
+      const x = n.x + 10 + i * 20;
+      rs.push(S('rect', { class: 'flg', x, y: n.y + 56, width: 18, height: 32, rx: 4 }, g));
+      ts.push(S('text', { class: 'flt', x: x + 9, y: n.y + 79 }, g, L[i]));
+    }
+    updaters.push(() => { for (let i = 0; i < 8; i++) { const on = (disp.p >> (7 - i)) & 1; setC(rs[i], 'on', on); setC(ts[i], 'on', on); } });
+  },
+  adder(g, n) {
+    S('text', { class: 'ns d1', x: n.x + 110, y: n.y + 30 }, g, 'ripple carry, bit 0 to bit 7');
+    const bits = [];
+    for (let b = 0; b < 8; b++) {
+      const cx = 770 + b * 62;
+      const cg = S('g', { class: 'k-alu' }, g);
+      S('rect', { class: 'cellb', x: cx, y: 705, width: 52, height: 44, rx: 5 }, cg);
+      S('text', { class: 'sm d2', x: cx + 6, y: 720, style: 'font-size:13px' }, cg, 'b' + b);
+      bits.push(S('text', { class: 'smv d2', x: cx + 26, y: 743, 'text-anchor': 'middle' }, cg, ''));
+      REG['cell' + b] = { el: cg };
+    }
+    const pg = S('g', { class: 'k-alu' }, g);
+    S('rect', { class: 'pill', x: 1170, y: 674, width: 90, height: 26, rx: 13 }, pg);
+    S('text', { class: 'sm', x: 1215, y: 693, 'text-anchor': 'middle', style: 'font-size:15px' }, pg, 'BCD fix');
+    REG.bcd = { el: pg };
+    updaters.push(() => { for (let b = 0; b < 8; b++) setT(bits[b], disp.res === undefined ? '·' : String((disp.res >> b) & 1)); });
+  },
+  tiaregs(g, n) {
+    const names = ['COLUBK', 'COLUPF', 'COLUP0', 'COLUP1', 'PF0', 'PF1', 'PF2', 'CTRLPF', 'GRP0', 'GRP1', 'VSYNC', 'VBLANK'];
+    const vals = [], sw = [];
+    names.forEach((nm, i) => {
+      const cx = 1547 + (i % 3) * 124, cy = 262 + Math.floor(i / 3) * 50;
+      const cg = S('g', { class: 'k-chip' }, g);
+      S('rect', { class: 'cellb', x: cx, y: cy, width: 118, height: 44, rx: 6 }, cg);
+      S('text', { class: 'sm', x: cx + 8, y: cy + 17, style: 'font-size:14px' }, cg, nm);
+      vals.push(S('text', { class: 'smv', x: cx + 8, y: cy + 38 }, cg, ''));
+      sw.push(/^COL/.test(nm) ? S('rect', { x: cx + 84, y: cy + 22, width: 26, height: 16, rx: 3, fill: '#000', stroke: 'var(--nstroke)', 'stroke-width': 1.5 }, cg) : null);
+      REG['tr_' + nm] = { el: cg };
+    });
+    updaters.push(() => names.forEach((nm, i) => {
+      const v = disp.tia[A.TIA_W.indexOf(nm)];
+      setT(vals[i], '$' + hex2(v));
+      if (sw[i] && sw[i].__v !== v) { sw[i].__v = v; sw[i].setAttribute('fill', A.paletteCss(v)); }
+    }));
+  },
+  tiaclk(g, n) {
+    const a = S('text', { class: 'smv', x: n.x + 14, y: n.y + 62 }, g, ''), b = S('text', { class: 'sm', x: n.x + 14, y: n.y + 82, style: 'font-size:14px' }, g, '');
+    updaters.push(() => { setT(a, 'clock ' + M.tia.hpos + ' / 228'); setT(b, 'scanline ' + M.tia.line + '   frame ' + M.tia.frame); });
+  },
+  tiaout(g, n) {
+    S('text', { class: 'ns d1', x: n.x + 14, y: n.y + 56 }, g, 'background');
+    const r = S('rect', { x: n.x + 210, y: n.y + 14, width: 76, height: 52, rx: 6, fill: '#000', stroke: 'var(--nstroke)', 'stroke-width': 2 }, g);
+    updaters.push(() => { const v = disp.tia[9]; if (r.__v !== v) { r.__v = v; r.setAttribute('fill', A.paletteCss(v)); } });
+  },
+  ram(g, n) {
+    S('text', { class: 'ns d1', x: n.x + 90, y: n.y + 30 }, g, '128 bytes, $80 to $FF');
+    const tx = [];
+    for (let i = 0; i < 128; i++) {
+      const cx = 1550 + (i % 16) * 22.5, cy = 1030 + Math.floor(i / 16) * 16;
+      const cg = S('g', { class: 'k-chip' }, g);
+      S('rect', { class: 'cellb', x: cx, y: cy, width: 21, height: 15, rx: 2 }, cg);
+      tx.push(S('text', { class: 'sm d2', x: cx + 10.5, y: cy + 11.5, 'text-anchor': 'middle', style: 'font-size:11px' }, cg, ''));
+      REG['ram_' + i] = { el: cg };
+    }
+    updaters.push(() => { for (let i = 0; i < 128; i++) setT(tx[i], hex2(disp.ram[i])); });
+  },
+  timer(g, n) {
+    const a = S('text', { class: 'smv', x: n.x + 14, y: n.y + 72 }, g, ''), b = S('text', { class: 'sm', x: n.x + 14, y: n.y + 98, style: 'font-size:14px' }, g, '');
+    updaters.push(() => { setT(a, 'INTIM $' + hex2(M.riot.t)); setT(b, 'counts every ' + M.riot.iv + (M.riot.under ? ' cycle(s), underflowed' : ' cycle(s)')); });
+  },
+  io(g, n) {
+    const a = S('text', { class: 'smv', x: n.x + 14, y: n.y + 72 }, g, ''), b = S('text', { class: 'smv', x: n.x + 14, y: n.y + 106 }, g, '');
+    updaters.push(() => { setT(a, 'SWCHA $' + hex2(M.riot.swcha)); setT(b, 'SWCHB $' + hex2(M.riot.swchb)); });
+  },
+  rom(g, n) {
+    S('text', { class: 'ns d1', x: n.x + 200, y: n.y + 30 }, g, '4 KB at $F000. The window follows the last address read.');
+    const cg = S('g', { class: 'k-chip' }, g);
+    const cur = S('rect', { class: 'romcur', x: 0, y: 0, width: 54, height: 22, rx: 4 }, cg);
+    REG.romcur = { el: cg };
+    const lab = [], by = [];
+    for (let r = 0; r < 8; r++) {
+      lab.push(S('text', { class: 'sm', x: n.x + 16, y: 1256 + r * 20, style: 'font-size:16px' }, g, ''));
+      for (let c = 0; c < 16; c++) by.push(S('text', { class: 'smv d1', x: n.x + 138 + c * 62, y: 1256 + r * 20, 'text-anchor': 'middle', style: 'font-size:17px' }, g, ''));
+    }
+    let key = '';
+    updaters.push(() => {
+      const a = disp.romAddr & 0xFFF, start = clamp((a >> 4) - 3, 0, 248), k = start + ':' + romVer;
+      if (k !== key) {
+        key = k;
+        for (let r = 0; r < 8; r++) {
+          lab[r].textContent = hex4(0xF000 + (start + r) * 16);
+          for (let c = 0; c < 16; c++) by[r * 16 + c].textContent = hex2(M.rom[(start + r) * 16 + c]);
+        }
+      }
+      const row = (a >> 4) - start, col = a & 15;
+      const nx = n.x + 138 + col * 62 - 27, ny = 1256 + row * 20 - 17;
+      if (cur.__x !== nx || cur.__y !== ny) { cur.__x = nx; cur.__y = ny; cur.setAttribute('x', nx); cur.setAttribute('y', ny); }
+    });
+  }
+};
+const fmtVal = (v, f) => v === undefined || v === null ? '' : f === 'h2' ? '$' + hex2(v) : f === 'h4' ? '$' + hex4(v) : String(v);
+LAY.N.forEach(n => {
+  const g = S('g', { class: 'node k-' + n.kind, 'data-id': n.id, 'data-view': n.view }, gNodes);
+  S('rect', { class: 'nb', x: n.x, y: n.y, width: n.w, height: n.h, rx: 8 }, g);
+  S('text', { class: 'nl', x: n.x + 14, y: n.y + 30 }, g, n.label);
+  if (n.sub && !n.custom) {
+    const s = S('text', { class: 'ns d1', x: n.x + 14, y: n.y + (n.h >= 80 ? 56 : 52) }, g, n.sub);
+    if (n.subKey) updaters.push(() => setT(s, disp[n.subKey] || n.sub));
+  } else if (n.subKey) {
+    const s = S('text', { class: 'ns d1', x: n.x + 14, y: n.y + 56 }, g, '');
+    updaters.push(() => setT(s, disp[n.subKey] || ''));
+  }
+  if (n.val) {
+    const top = n.h < 70 || n.w < 200;
+    const v = S('text', { class: 'nv' + (top ? ' top' : ''), x: n.x + n.w - 14, y: top ? n.y + 34 : n.y + n.h / 2 + 14, 'text-anchor': 'end' }, g, '');
+    updaters.push(() => setT(v, fmtVal(disp[n.val], n.fmt)));
+  }
+  if (n.custom) BUILD[n.custom](g, n);
+  REG[n.id] = { el: g };
+  INFO[n.id] = { label: n.label + (n.sub && !n.custom ? ' (' + n.sub.toLowerCase() + ')' : ''), desc: n.desc, kind: n.kind };
+});
+
+/* ================= lighting ================= */
+const T = {}, active = new Set();
+let FADE = 500;
+function schedule(id, start, end, rev) {
+  const r = REG[id]; if (!r) return;
+  T[id] = { start, end }; active.add(id);
+  if (r.rev !== !!rev) { r.rev = !!rev; r.el.classList.toggle('rev', !!rev); }
+}
+function setHeat(r, h) {
+  if (Math.abs((r.h || 0) - h) < 0.01 && h !== 0 && h !== 1) return;
+  r.h = h; r.el.style.setProperty('--h', h.toFixed(2));
+  const lit = h > 0.05; if (r.lit !== lit) { r.lit = lit; r.el.classList.toggle('lit', lit); }
+}
+function updateLights(now, dt) {
+  for (const id of active) {
+    const t = T[id], r = REG[id]; let h;
+    if (now < t.start) h = Math.max(0, (r.h || 0) - dt / FADE);
+    else if (now <= t.end) h = 1;
+    else { h = Math.max(0, 1 - (now - t.end) / FADE); if (h === 0) active.delete(id); }
+    setHeat(r, h);
+  }
+}
+function releaseLights(now) { for (const id of active) if (T[id].end > now) T[id].end = now; }
+function clearLights() { active.clear(); for (const id in REG) { const r = REG[id]; if (r.h) setHeat(r, 0); } }
+
+/* ================= camera ================= */
+let cam = { cx: 1200, cy: 750, w: 2400 }, tw = null, curView = 'sys', viewLocked = true;
+const svgSize = () => { const r = svg.getBoundingClientRect(); return { w: r.width || 900, h: r.height || 560 }; };
+function lod(s) {
+  svg.style.setProperty('--ov', clamp((0.52 - s) / 0.16, 0, 1).toFixed(3));
+  svg.style.setProperty('--d1', clamp((s - 0.16) / 0.12, 0, 1).toFixed(3));
+  svg.style.setProperty('--d2', clamp((s - 0.34) / 0.2, 0, 1).toFixed(3));
+}
+function applyCam() {
+  const z = svgSize(), h = cam.w * z.h / z.w;
+  svg.setAttribute('viewBox', (cam.cx - cam.w / 2).toFixed(1) + ' ' + (cam.cy - h / 2).toFixed(1) + ' ' + cam.w.toFixed(1) + ' ' + h.toFixed(1));
+  lod(z.w / cam.w);
+}
+function fitView(v) { const z = svgSize(), ar = z.h / z.w; return { cx: v.x + v.w / 2, cy: v.y + v.h / 2, w: Math.max(v.w, v.h / ar) * 1.05 }; }
+function flyTo(key, instant) {
+  curView = key; markCrumb(key); viewLocked = true;
+  const t = fitView(LAY.VIEWS[key]);
+  if (instant) { cam = t; tw = null; applyCam(); } else tw = { from: Object.assign({}, cam), t, t0: performance.now(), ms: 700 };
+}
+function stepCam(now) {
+  if (!tw) return;
+  const p = clamp((now - tw.t0) / tw.ms, 0, 1), e = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+  cam.w = Math.exp(Math.log(tw.from.w) + (Math.log(tw.t.w) - Math.log(tw.from.w)) * e);
+  cam.cx = tw.from.cx + (tw.t.cx - tw.from.cx) * e; cam.cy = tw.from.cy + (tw.t.cy - tw.from.cy) * e;
+  applyCam(); if (p >= 1) tw = null;
+}
+function zoomAt(cx, cy, f) {
+  const r = svg.getBoundingClientRect(), W = r.width || 900, H = r.height || 560;
+  const px = (cx - r.left) / W - .5, py = (cy - r.top) / H - .5;
+  const wx = cam.cx + px * cam.w, wy = cam.cy + py * cam.w * H / W;
+  const nw = clamp(cam.w * f, 220, 5200);
+  cam.w = nw; cam.cx = wx - px * nw; cam.cy = wy - py * nw * H / W; applyCam();
+}
+const crumbs = $('#crumbs');
+['sys', 'cpu', 'addr', 'ctrl', 'regs', 'alu', 'adder', 'tia', 'riot', 'ram', 'rom'].forEach(k => {
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = LAY.VIEWS[k].name; b.dataset.view = k;
+  b.addEventListener('click', () => { flyTo(k); dismissHint(); });
+  crumbs.appendChild(b);
+});
+function markCrumb(k) { viewLocked = !!k; crumbs.querySelectorAll('button').forEach(b => b.setAttribute('aria-current', b.dataset.view === k ? 'true' : 'false')); }
+
+const ptrs = new Map(); let moved = 0, lastPinch = 0;
+function dismissHint() { $('#hint').classList.add('gone'); }
+svg.addEventListener('pointerdown', e => {
+  try { svg.setPointerCapture(e.pointerId); } catch (_) { }
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; tw = null;
+  if (ptrs.size === 1) svg.classList.add('drag');
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; lastPinch = Math.hypot(a.x - b.x, a.y - b.y); }
+});
+svg.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) { hover(e); return; }
+  const p = ptrs.get(e.pointerId), dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  const z = svgSize();
+  if (ptrs.size === 1) {
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (moved > 6) { cam.cx -= dx * cam.w / z.w; cam.cy -= dy * cam.w / z.w; applyCam(); markCrumb(''); dismissHint(); }
+  } else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (lastPinch > 0 && d > 0) zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, lastPinch / d);
+    lastPinch = d; moved += 10; markCrumb(''); dismissHint();
+  }
+});
+function endPtr(e) {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId); lastPinch = 0;
+  if (!ptrs.size) svg.classList.remove('drag');
+  if (e.type === 'pointerup' && moved < 7 && !ptrs.size) clickAt(e.clientX, e.clientY);
+}
+svg.addEventListener('pointerup', endPtr); svg.addEventListener('pointercancel', endPtr);
+svg.addEventListener('wheel', e => { e.preventDefault(); tw = null; zoomAt(e.clientX, e.clientY, Math.exp(clamp(e.deltaY, -200, 200) * 0.0016)); markCrumb(''); dismissHint(); }, { passive: false });
+$('#zIn').addEventListener('click', () => { const r = svg.getBoundingClientRect(); tw = null; zoomAt(r.left + r.width / 2, r.top + r.height / 2, 0.7); markCrumb(''); });
+$('#zOut').addEventListener('click', () => { const r = svg.getBoundingClientRect(); tw = null; zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.4); markCrumb(''); });
+$('#zFit').addEventListener('click', () => flyTo('sys'));
+function onResize() { if (viewLocked && curView) flyTo(curView, true); else applyCam(); }
+window.addEventListener('resize', onResize);
+if (window.ResizeObserver) new ResizeObserver(onResize).observe(svg.parentNode);
+
+let selId = null;
+function clickAt(x, y) {
+  dismissHint();
+  const el = document.elementFromPoint(x, y), t = el && el.closest ? el.closest('[data-view]') : null;
+  if (!t || !svg.contains(t)) return;
+  selectPart(t.getAttribute('data-id'));
+  flyTo(t.getAttribute('data-view'));
+}
+function selectPart(id) {
+  if (selId && REG[selId]) REG[selId].el.classList.remove('sel');
+  selId = id; if (REG[id]) REG[id].el.classList.add('sel');
+  const i = INFO[id], box = $('#part');
+  if (!i) return;
+  box.innerHTML = '';
+  const k = document.createElement('span'); k.className = 'chipk k-' + i.kind; k.style.color = 'var(--kc)';
+  k.textContent = { addr: 'Addressing', data: 'Data path', ctl: 'Control', alu: 'ALU', chip: 'Peripheral' }[i.kind];
+  const h = document.createElement('h3'); h.textContent = i.label;
+  const p = document.createElement('p'); p.textContent = i.desc;
+  box.append(k, h, p);
+}
+function showDefaultPart() {
+  const box = $('#part'); box.innerHTML = '';
+  const k = document.createElement('span'); k.className = 'chipk'; k.style.color = 'var(--mute)'; k.textContent = 'How to explore';
+  const h = document.createElement('h3'); h.textContent = 'Tap any block';
+  const p = document.createElement('p'); p.textContent = 'Tap a block to zoom in and read what it does. Amber wires carry addresses, teal wires carry data, pink wires are control and green wires are inside the ALU. Zoom into the adder while running the Carry ripple demo to watch a carry travel from bit to bit.';
+  box.append(k, h, p);
+}
+const tip = $('#tip');
+function hover(e) {
+  if (e.pointerType && e.pointerType !== 'mouse') return;
+  const t = e.target.closest ? e.target.closest('.node,.frame') : null;
+  if (!t) { tip.classList.remove('on'); return; }
+  const i = INFO[t.getAttribute('data-id')]; if (!i) return;
+  tip.innerHTML = ''; const b = document.createElement('b'); b.textContent = i.label; tip.append(b, ' ' + i.desc.split('. ')[0].replace(/\.$/, '') + '.');
+  tip.classList.add('on');
+}
+svg.addEventListener('pointerleave', () => tip.classList.remove('on'));
+
+/* ================= program ================= */
+let listingEls = new Map(), hiPC = -1;
+function loadRomFromSource(src) {
+  const r = A.assemble(src), err = $('#err');
+  if (r.errors.length) { err.textContent = r.errors.map(e => 'Line ' + e.ln + ': ' + e.msg).join('\n'); return false; }
+  err.textContent = '';
+  M.loadRom(r.rom); romVer++;
+  const L = $('#listing'); L.innerHTML = ''; listingEls = new Map();
+  r.listing.forEach(l => {
+    const d = document.createElement('div');
+    const a = document.createElement('span'); a.className = 'a'; a.textContent = hex4(l.addr);
+    const b = document.createElement('span'); b.className = 'b'; b.textContent = l.bytes.map(hex2).join(' ');
+    const t = document.createElement('span'); t.textContent = l.text;
+    d.append(a, b, t); L.appendChild(d); if (!listingEls.has(l.addr)) listingEls.set(l.addr, d);
+  });
+  resetMachine();
+  return true;
+}
+function highlightPC(pc) {
+  if (pc === hiPC) return;
+  const o = listingEls.get(hiPC); if (o) o.classList.remove('cur');
+  hiPC = pc; const n = listingEls.get(pc); if (n) { n.classList.add('cur'); const L = $('#listing'); if (L.scrollHeight > L.clientHeight) L.scrollTop = n.offsetTop - L.clientHeight / 2; }
+}
+
+/* ================= panels ================= */
+const nowBox = $('#now');
+let rtNote = false;
+function renderNow() {
+  rtNote = false;
+  nowBox.innerHTML = '';
+  if (!cur) {
+    const p = document.createElement('p'); p.className = 'empty';
+    p.textContent = 'Press Run to watch the program, or Step to execute one instruction at a time. Micro-step pauses after every bus cycle.';
+    nowBox.appendChild(p); return;
+  }
+  const h = document.createElement('div'); h.className = 'ins';
+  const a = document.createElement('span'); a.textContent = '$' + hex4(cur.info.pc) + '  ' + cur.text;
+  const s = document.createElement('small'); s.textContent = (INS_DESC[cur.info.m] || 'Unofficial opcode') + ' · ' + cur.info.cycles + ' cycles · ' + cur.info.len + (cur.info.len > 1 ? ' bytes' : ' byte');
+  h.append(a, s); nowBox.appendChild(h);
+  const ol = document.createElement('ol'); ol.className = 'steps';
+  cur.phases.forEach(p => { const li = document.createElement('li'); li.textContent = p.text; ol.appendChild(li); });
+  nowBox.appendChild(ol); cur.ol = ol;
+}
+function markStep(idx) {
+  if (!cur || !cur.ol) return;
+  [...cur.ol.children].forEach((li, i) => { li.classList.toggle('done', i < idx); li.classList.toggle('cur', i === idx); });
+  const li = cur.ol.children[idx]; if (li) cur.ol.scrollTop = li.offsetTop - cur.ol.clientHeight / 2 + li.offsetHeight / 2;
+}
+const regsEl = $('#regs'), regCells = {};
+[['PC', 'pc'], ['A', 'a'], ['X', 'x'], ['Y', 'y'], ['S', 's'], ['P', 'p'], ['Cycles', 'cyc'], ['Scanline', 'line'], ['Frame', 'frm']].forEach(([l, k]) => {
+  const d = document.createElement('div'); d.className = 'reg'; const s = document.createElement('span'); s.textContent = l; const b = document.createElement('b');
+  d.append(s, b); regsEl.appendChild(d); regCells[k] = b;
+});
+const flagEls = [...'NV-BDIZC'].map(c => { const i = document.createElement('i'); i.textContent = c; $('#flagrow').appendChild(i); return i; });
+const tvCanvas = $('#tv'), tvCtx = tvCanvas.getContext('2d'), beam = $('#beam');
+const tvImg = new ImageData(new Uint8ClampedArray(M.tia.fb.buffer), 160, 192);
+let tvDirty = true;
+function renderPanels() {
+  setT(regCells.pc, '$' + hex4(disp.pc)); setT(regCells.a, '$' + hex2(disp.a)); setT(regCells.x, '$' + hex2(disp.x)); setT(regCells.y, '$' + hex2(disp.y));
+  setT(regCells.s, '$' + hex2(disp.s)); setT(regCells.p, '$' + hex2(disp.p)); setT(regCells.cyc, String(M.cycles)); setT(regCells.line, String(M.tia.line)); setT(regCells.frm, String(M.tia.frame));
+  for (let i = 0; i < 8; i++) setC(flagEls[i], 'on', (disp.p >> (7 - i)) & 1);
+  if (tvDirty) { if (tvCtx) tvCtx.putImageData(tvImg, 0, 0); tvDirty = false; }
+  const bx = M.tia.hpos - 68, by = M.tia.line - 40;
+  if (bx >= 0 && by >= 0 && by < 192) { beam.style.display = ''; beam.style.left = (bx / 160 * 100) + '%'; beam.style.top = (by / 192 * 100) + '%'; } else beam.style.display = 'none';
+}
+
+/* ================= sequencer ================= */
+const SPEEDS = [['Slow', 1500], ['Medium', 750], ['Quick', 300], ['Blur', 0], ['Real time', 0]];
+const FADES = [700, 500, 350, 380, 260];
+let level = 1, mode = 'paused', cur = null, phaseEnd = 0, pendSets = [], prevOn = null, lastFocus = '', lastNowT = 0;
+
+function syncDisp() {
+  disp.pc = M.pc; disp.a = M.a; disp.x = M.x; disp.y = M.y; disp.s = M.s; disp.p = M.p;
+  disp.ram.set(M.ram); disp.tia.set(M.tia.reg);
+}
+function applySet(o) {
+  for (const k in o) {
+    if (k === 'ramw') disp.ram[o.ramw[0]] = o.ramw[1];
+    else if (k === 'tiaw') disp.tia[o.tiaw[0]] = o.tiaw[1];
+    else if (k === 'opinfo') { disp.op = cur.info; disp.mnem = cur.info.m + ' ' + MODE[cur.info.mode]; }
+    else disp[k] = o[k];
+  }
+}
+function processSets(now) {
+  if (!pendSets.length) return;
+  const rest = [];
+  pendSets.forEach(s => { if (s.at <= now) applySet(s.o); else rest.push(s); });
+  pendSets = rest;
+}
+function describeIns(info, bytes) {
+  const o = A.OPS[info.op];
+  if (!o) return '.byte $' + hex2(info.op);
+  return o.m + ' ' + A.fmtOperand(o, bytes[1] || 0, bytes[2] || 0, info.pc);
+}
+function newInstruction(now, quiet) {
+  M.tracing = true;
+  const info = M.step(), tr = M.tr.slice(), phases = PH.buildPhases(info, tr), bytes = tr.filter(e => e.t === 'fetch').map(e => e.val);
+  cur = { info, phases, idx: -1, bytes, text: '' };
+  cur.text = describeIns(info, bytes).trim();
+  if (!quiet || now - lastNowT > 200) { renderNow(); lastNowT = now; } else cur.ol = null;
+  highlightPC(info.pc); tvDirty = true;
+}
+function finishInstruction(now) {
+  pendSets.forEach(s => applySet(s.o)); pendSets = [];
+  syncDisp();
+  if (prevOn) { prevOn = null; }
+  if (cur) highlightPC(M.pc);
+}
+function startPhase(now) {
+  if (prevOn && mode === 'micro') prevOn.forEach(([id]) => { if (T[id] && T[id].end > now) T[id].end = now; });
+  pendSets.forEach(s => applySet(s.o)); pendSets = [];
+  const ph = cur.phases[++cur.idx], dur = Math.max(60, SPEEDS[level][1] * ph.dur);
+  const hold = mode === 'micro';
+  ph.on.forEach(([id, t, rev]) => schedule(id, now + t * dur, hold ? Infinity : now + dur, rev));
+  prevOn = ph.on;
+  pendSets = pendSets.concat(ph.sets.map(([t, o]) => ({ at: now + t * dur, o })));
+  disp.tcyc = ph.cyc; phaseEnd = now + dur;
+  markStep(cur.idx);
+  if ($('#follow').checked && ph.focus !== lastFocus && LAY.VIEWS[ph.focus]) { lastFocus = ph.focus; flyTo(ph.focus); }
+}
+function advance(now) {
+  if (!cur || cur.idx >= cur.phases.length - 1) { if (cur) finishInstruction(now); newInstruction(now); }
+  startPhase(now);
+}
+function instant(now) {
+  if (cur) finishInstruction(now);
+  newInstruction(now, true);
+  cur.phases.forEach(ph => { ph.on.forEach(([id, t, rev]) => schedule(id, now, now, rev)); ph.sets.forEach(([t, o]) => applySet(o)); disp.tcyc = ph.cyc; });
+  pendSets = []; syncDisp();
+  highlightPC(M.pc);
+}
+const CHIP_LIGHT = { rom: ['f_rom', 'rom_arr'], tia: ['f_tia', 'tia_regs', 'tia_gen'], ram: ['f_riot', 'riot_ram'], timer: ['f_riot', 'riot_timer'], io: ['f_riot', 'riot_io'] };
+function realtime(now, dt) {
+  M.tracing = false;
+  if (!rtNote) { rtNote = true; nowBox.innerHTML = ''; const p = document.createElement('p'); p.className = 'empty'; p.textContent = 'Running at full speed: about 1.19 million CPU cycles per second, like the real console. Individual instructions go by too fast to follow, so the chips flash whenever they are accessed. Pause, or choose a slower speed, to watch single instructions.'; nowBox.appendChild(p); }
+  const target = M.cycles + Math.min(dt, 50) * 1193.18, acc = { rom: 0, tia: 0, ram: 0, timer: 0, io: 0 };
+  let guard = 0;
+  while (M.cycles < target && guard++ < 80000) { M.step(); for (const k in acc) acc[k] += M.acc[k]; }
+  syncDisp(); disp.romAddr = M.pc & 0xFFF; disp.ar = M.pc & 0x1FFF; disp.tcyc = 0; tvDirty = true;
+  ['pc', 'ar', 'e_ar_pin', 'e_data_pin'].forEach(id => schedule(id, now, now + 40));
+  for (const k in acc) if (acc[k]) CHIP_LIGHT[k].forEach(id => schedule(id, now, now + 40));
+  highlightPC(M.pc);
+}
+function stopAll() { mode = 'paused'; updateButtons(); }
+function resetMachine() {
+  stopAll(); M.reset(); cur = null; pendSets = []; prevOn = null; phaseEnd = 0;
+  clearLights(); syncDisp(); disp.ar = M.pc & 0x1FFF; disp.ir = undefined; disp.op = null; disp.mnem = ''; disp.tcyc = 0; disp.ain = disp.bin = disp.res = undefined;
+  disp.binvtxt = ''; disp.logicop = ''; disp.shiftop = ''; disp.romAddr = M.pc & 0xFFF; disp.db = 0;
+  M.tia.fb.fill(0xFF000000); tvDirty = true; renderNow(); highlightPC(M.pc);
+}
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(now - last, 100); last = now;
+  stepCam(now);
+  if (mode === 'run' || mode === 'step') {
+    if (level <= 2) {
+      if (now >= phaseEnd) {
+        if (mode === 'step' && cur && cur.idx >= cur.phases.length - 1 && cur.started) { finishInstruction(now); mode = 'paused'; updateButtons(); }
+        else { advance(now); cur.started = true; }
+      }
+    } else if (level === 3) { instant(now); if (mode === 'step') stopAll(); }
+    else { if (mode === 'step') { instant(now); stopAll(); } else realtime(now, dt); }
+  }
+  processSets(now);
+  updateLights(now, dt);
+  updaters.forEach(f => f());
+  renderPanels();
+  requestAnimationFrame(frame);
+}
+
+/* ================= controls ================= */
+const ICON = {
+  play: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z"/></svg>',
+  pause: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 2h3v10H3zM8 2h3v10H8z"/></svg>',
+  step: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 2v10l7-5zM10 2h2v10h-2z"/></svg>',
+  micro: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 2v10l6-5z"/><circle cx="11.5" cy="7" r="1.6"/></svg>',
+  reset: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5a5.5 5.5 0 1 0 5.5 5.5h-2A3.5 3.5 0 1 1 7 3.5V6l3.6-3.2L7 -.4z"/></svg>'
+};
+const bRun = $('#bRun'), bStep = $('#bStep'), bMicro = $('#bMicro'), bReset = $('#bReset');
+function updateButtons() {
+  const running = mode === 'run';
+  bRun.innerHTML = (running ? ICON.pause : ICON.play) + '<span>' + (running ? 'Pause' : 'Run') + '</span>';
+  bStep.innerHTML = ICON.step + '<span>Step</span>'; bMicro.innerHTML = ICON.micro + '<span>Micro-step</span>'; bReset.innerHTML = ICON.reset + '<span>Reset</span>';
+}
+bRun.addEventListener('click', () => {
+  if (mode === 'run') { mode = 'paused'; }
+  else { releaseLights(performance.now()); mode = 'run'; }
+  updateButtons();
+});
+bStep.addEventListener('click', () => {
+  const now = performance.now();
+  if (level >= 3) { releaseLights(now); mode = 'step'; updateButtons(); return; }
+  if (cur && cur.idx < cur.phases.length - 1) finishInstruction(now);
+  releaseLights(now); cur = null; phaseEnd = 0; mode = 'step'; updateButtons();
+});
+bMicro.addEventListener('click', () => {
+  const now = performance.now();
+  if (mode !== 'micro') { mode = 'micro'; updateButtons(); }
+  advance(now); cur.started = true;
+});
+bReset.addEventListener('click', resetMachine);
+const speed = $('#speed'), speedOut = $('#speedOut');
+function setLevel(v) {
+  level = v; FADE = FADES[v]; speedOut.textContent = SPEEDS[v][0];
+  if (v >= 4) { M.tracing = false; } else M.tracing = true;
+}
+speed.addEventListener('input', () => setLevel(+speed.value));
+
+const demoSel = $('#demoSel'), src = $('#src');
+DEMOS.forEach((d, i) => { const o = document.createElement('option'); o.value = i; o.textContent = d.name; demoSel.appendChild(o); });
+function loadDemo(i) { const d = DEMOS[i]; src.value = d.src; $('#blurb').textContent = d.blurb; loadRomFromSource(d.src); }
+demoSel.addEventListener('change', () => loadDemo(+demoSel.value));
+$('#bAsm').addEventListener('click', () => loadRomFromSource(src.value));
+
+/* ================= start ================= */
+updateButtons(); setLevel(1);
+loadDemo(0);
+showDefaultPart();
+renderNow();
+applyCam(); flyTo('sys', true);
+requestAnimationFrame(frame);
+window.__explorer = { M, disp, get cur() { return cur; }, get mode() { return mode; }, flyTo, REG, T, setLevel };
+})();
+</script>
+</body>
+</html>
