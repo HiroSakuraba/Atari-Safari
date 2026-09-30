@@ -1,7 +1,9 @@
 /* 2600 Chip Explorer: scene, camera, sequencer, panels. */
 (function () {
 'use strict';
-const A = window.Atari, LAY = window.LAYOUT, DEMOS = window.DEMOS, PH = window.PHASES;
+const A = window.Atari, LAY = window.LAYOUT, PH = window.PHASES;
+const DEMOS = window.DEMOS, GAMES = (window.GAMES || []).map(g => Object.assign({ game: true }, g));
+const PROGRAMS = DEMOS.concat(GAMES);
 const NS = 'http://www.w3.org/2000/svg';
 const $ = (s, r) => (r || document).querySelector(s);
 const hex2 = A.hex2, hex4 = A.hex4;
@@ -555,6 +557,7 @@ function resetMachine() {
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(now - last, 100); last = now;
+  applyInput();
   stepCam(now);
   if (mode === 'run' || mode === 'step') {
     if (level <= 2) {
@@ -611,9 +614,45 @@ function setLevel(v) {
 speed.addEventListener('input', () => setLevel(+speed.value));
 
 const demoSel = $('#demoSel'), src = $('#src');
-DEMOS.forEach((d, i) => { const o = document.createElement('option'); o.value = i; o.textContent = d.name; demoSel.appendChild(o); });
-function loadDemo(i) { const d = DEMOS[i]; src.value = d.src; $('#blurb').textContent = d.blurb; loadRomFromSource(d.src); }
+{
+  const og = (label, from, to) => { const g = document.createElement('optgroup'); g.label = label; for (let i = from; i < to; i++) { const o = document.createElement('option'); o.value = i; o.textContent = PROGRAMS[i].name; g.appendChild(o); } demoSel.appendChild(g); };
+  og('Demos', 0, DEMOS.length); if (GAMES.length) og('Games', DEMOS.length, PROGRAMS.length);
+}
+function loadDemo(i) {
+  const d = PROGRAMS[i]; src.value = d.src; $('#blurb').textContent = d.blurb;
+  const ok = loadRomFromSource(d.src);
+  setPadVisible(!!d.game);
+  if (ok && d.game) { speed.value = 4; setLevel(4); releaseLights(performance.now()); mode = 'run'; updateButtons(); flyTo('tia'); }
+}
 demoSel.addEventListener('change', () => loadDemo(+demoSel.value));
+
+/* ---- controller: keyboard and on-screen pad drive the joystick, fire button and console switches ---- */
+const pad = $('#pad'), inp = { up: 0, down: 0, left: 0, right: 0, fire: 0, reset: 0, select: 0 };
+function setPadVisible(v) { pad.hidden = !v; if (!v) setBig(false); }
+function applyInput() {
+  const r = M.riot;
+  r.swcha = 0xFF & ~((inp.right ? 0x80 : 0) | (inp.left ? 0x40 : 0) | (inp.down ? 0x20 : 0) | (inp.up ? 0x10 : 0));
+  r.swchb = 0x0B & ~((inp.reset ? 1 : 0) | (inp.select ? 2 : 0));
+  M.tia.fire = !!inp.fire;
+}
+const KEYS = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ' ': 'fire', z: 'fire', Enter: 'reset', r: 'reset' };
+function keyTarget(e) { const t = e.target && e.target.tagName; return t === 'TEXTAREA' || t === 'INPUT' || t === 'SELECT'; }
+window.addEventListener('keydown', e => {
+  if (keyTarget(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = KEYS[e.key] || KEYS[e.key.toLowerCase()]; if (!k) return;
+  if (!pad.hidden) e.preventDefault(); inp[k] = 1; applyInput();
+});
+window.addEventListener('keyup', e => { const k = KEYS[e.key] || KEYS[(e.key || '').toLowerCase()]; if (k) { inp[k] = 0; applyInput(); } });
+window.addEventListener('blur', () => { for (const k in inp) inp[k] = 0; applyInput(); });
+const bigBtn = $('#bigTv'), tvBox = $('#tv').parentElement;
+function setBig(v) { tvBox.classList.toggle('big', v); bigBtn.setAttribute('aria-pressed', String(v)); bigBtn.textContent = v ? 'Small screen' : 'Big screen'; }
+bigBtn.addEventListener('click', () => setBig(!tvBox.classList.contains('big')));
+tvBox.addEventListener('click', () => { if (tvBox.classList.contains('big')) setBig(false); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape') setBig(false); });
+pad.querySelectorAll('[data-in]').forEach(b => {
+  const k = b.dataset.in, on = e => { e.preventDefault(); inp[k] = 1; b.classList.add('down'); applyInput(); }, off = () => { inp[k] = 0; b.classList.remove('down'); applyInput(); };
+  b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointerleave', off); b.addEventListener('pointercancel', off);
+});
 $('#bAsm').addEventListener('click', () => loadRomFromSource(src.value));
 
 /* ================= start ================= */
@@ -623,5 +662,5 @@ showDefaultPart();
 renderNow();
 applyCam(); flyTo('sys', true);
 requestAnimationFrame(frame);
-window.__explorer = { setDieMode, M, disp, get cur() { return cur; }, get mode() { return mode; }, flyTo, REG, T, setLevel };
+window.__explorer = { setDieMode, inp, applyInput, loadDemo, PROGRAMS, M, disp, get cur() { return cur; }, get mode() { return mode; }, flyTo, REG, T, setLevel };
 })();

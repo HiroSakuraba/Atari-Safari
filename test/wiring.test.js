@@ -38,10 +38,12 @@ const extra = `start: LDX #5
  BEQ start
 vec: .word start
  BRK`;
-for (const src of [...DEMOS.map(d=>d.src), extra]) {
+const fs = require('fs'), path = require('path');
+const gameSrcs = fs.readdirSync(path.join(__dirname, '..', 'games')).filter(f => f.endsWith('.asm')).map(f => fs.readFileSync(path.join(__dirname, '..', 'games', f), 'utf8'));
+for (const src of [...DEMOS.map(d=>d.src), extra, ...gameSrcs]) {
   const r = A.assemble(src); if (r.errors.length) { console.log('ASM ERR', r.errors); continue; }
   const m = new A.Machine(); m.loadRom(r.rom);
-  for (let i=0;i<400;i++) {
+  for (let i=0;i<(gameSrcs.includes(src)?4000:400);i++) {
     const info = m.step(); const tr = m.tr.slice(); insCount++;
     const phases = PH.buildPhases(info, tr);
     if (!phases.length) { problems++; console.log('NO PHASES for', info); }

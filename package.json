@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node tools/build.js",
-    "test": "node test/emulator.test.js && node test/tia.test.js && node test/wiring.test.js",
+    "test": "node test/emulator.test.js && node test/tia.test.js && node test/games.test.js && node test/wiring.test.js",
     "test:dom": "npm run build && node test/dom.test.js",
     "test:all": "npm test && npm run test:dom"
   },

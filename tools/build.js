@@ -14,9 +14,17 @@ if (cut < 0) throw new Error('src/shell.html: could not find <div id="app">');
 const head = shell.slice(0, cut);
 const body = shell.slice(cut);
 
-const order = ['cpu.js', 'demos.js', 'layout.js', 'phases.js', 'ui.js'];
+/* Games live in games/*.asm. Header comments (; @id, ; @name, ; @blurb) become the picker entry. */
+const gameDir = path.join(root, 'games');
+const games = fs.existsSync(gameDir) ? fs.readdirSync(gameDir).filter(f => f.endsWith('.asm')).sort().map(f => {
+  const src = fs.readFileSync(path.join(gameDir, f), 'utf8');
+  const tag = k => { const m = new RegExp('^;\\s*@' + k + '\\s+(.+)$', 'm').exec(src); if (!m) throw new Error(f + ': missing "; @' + k + '" header'); return m[1].trim(); };
+  return { id: tag('id'), name: tag('name'), blurb: tag('blurb'), src };
+}) : [];
+const gamesJs = 'window.GAMES = ' + JSON.stringify(games).replace(/</g, '\\u003c') + ';';
+const order = ['cpu.js', 'demos.js', 'games', 'layout.js', 'phases.js', 'ui.js'];
 const scripts = order.map(f => {
-  const js = read(f);
+  const js = f === 'games' ? gamesJs : read(f);
   if (/<\/script/i.test(js)) throw new Error(f + ' contains "</script", which would end the inline script early');
   return '<script>\n' + js.trimEnd() + '\n</script>';
 }).join('\n');

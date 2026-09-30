@@ -20,6 +20,22 @@ The CPU view is drawn as a toy floorplan of the 6507 die: the decode ROM band ac
 
 ![The 6507 as a toy die floorplan, regions glowing while LDA #$55 runs.](docs/die.png)
 
+## Games
+
+The Program picker has a **Games** group with two complete games written in 6502 assembly for this machine. They are original designs, not copies of any arcade game or its characters.
+
+| Game | What it is |
+| --- | --- |
+| **Star Sentry** | A fixed shooter. A cannon slides along the bottom and fires up at a marching grid of aliens that speeds up as it thins out. |
+| **Dot Dash** | A maze chase. Eat every dot while three ghosts hunt you, then go again on the next level. |
+
+![Star Sentry running on the simulated console, shown on the big screen.](docs/star-sentry.png)
+![Dot Dash running on the simulated console.](docs/dot-dash.png)
+
+Both use real 2600 tricks: a two-line kernel, mid-line sprite and playfield writes, `HMOVE` fine positioning and the TIA collision latches. The source is in `games/`, and you can read it in the Program panel. Choose a game and the camera flies to the TIA while it runs at real time.
+
+Controls: arrow keys or WASD to move, Space or Z to fire, R for the console reset switch. There is also an on-screen pad for touch. **Big screen** (or click the TV) shows the picture full size; press Escape to go back to the schematic.
+
 Colour is a signal: amber wires carry addresses, teal wires carry data, pink wires are control, green wires are inside the ALU, and violet marks the peripheral chips.
 
 | Overview | ALU | TIA and picture |
@@ -58,7 +74,7 @@ In the repository, go to **Settings → Pages**, choose **Deploy from a branch**
 
 Tap or click a block to zoom to it and read what it does. Drag to pan; scroll or pinch to zoom. The buttons along the top jump to the CPU, decode logic, registers, ALU, adder, TIA, RIOT, RAM or cartridge.
 
-The **Program** panel has six demos:
+The **Program** panel has six demos, plus the games above:
 
 | Demo | Shows |
 | --- | --- |
@@ -97,7 +113,7 @@ The 2600 address decoding is real. The 6507 has 13 address lines, and the chips 
 | A12 = 0, A7 = 1, A9 = 1 | RIOT timer and I/O ports |
 
 - **CPU.** All official opcodes, with correct flags, decimal mode and per-instruction cycle counts including page-crossing and branch penalties.
-- **TIA.** 228 colour clocks per scanline, three per CPU cycle. WSYNC halts the CPU until the end of the line. It renders the background, playfield (mirrored or repeated, score mode) and the two players, including their copy and size modes, using an approximated NTSC palette.
+- **TIA.** 228 colour clocks per scanline, three per CPU cycle. WSYNC halts the CPU until the end of the line. It renders the background, playfield (mirrored or repeated, score mode), the two players with their copy and size modes, both missiles and the ball, with `HMOVE` fine motion, vertical delay, the collision latches and the priority rules, using an approximated NTSC palette.
 - **RIOT.** RAM, the interval timer (1, 8, 64 and 1024 cycle intervals, and counting every cycle after underflow) and the I/O ports.
 - **Timing.** A frame of 262 lines takes 19,912 CPU cycles, which the tests check.
 
@@ -108,8 +124,8 @@ This is a teaching tool, not a cycle-exact emulator of every bus event.
 - Cycle counts are correct, but the dummy reads on indexed and implied cycles, and the extra write in read-modify-write instructions, are counted as time and not shown on the bus.
 - Unofficial opcodes run as a NOP.
 - Only 4 KB cartridges. There is no bank switching.
-- TIA: missiles and the ball are stored but not drawn. Collisions, HMOVE fine motion, vertical delay and audio are not implemented. Horizontal sprite placement from `RESP0`/`RESP1` is approximate.
-- RIOT ports return fixed idle values, so there is no joystick or console-switch input yet.
+- TIA: audio is not implemented, and the `HMOVE` blanking bar and object placement are modelled to the colour clock but not every odd corner case.
+- RIOT: joystick, fire buttons and the reset switch work through the keyboard and on-screen pad. The other console switches read as idle.
 
 ## How it works
 
@@ -126,10 +142,11 @@ This is a teaching tool, not a cycle-exact emulator of every bus event.
 | `src/layout.js` | Every block, wire and zoom target, with their descriptions. |
 | `src/ui.js` | Scene, camera, sequencer, panels and controls. |
 | `src/demos.js` | The demo programs. |
+| `games/*.asm` | Star Sentry and Dot Dash. The build embeds them in the page. |
 | `src/shell.html` | Page markup and CSS. |
 | `tools/build.js` | Inlines everything into `index.html`. |
 | `tools/screenshots.py` | Regenerates the images in `docs/` (optional, needs Playwright). |
-| `test/` | Emulator, wiring and browser-DOM tests. |
+| `test/` | Emulator, TIA, game, wiring and browser-DOM tests. |
 
 ## Development
 
@@ -146,7 +163,7 @@ npm test             # emulator and wiring checks, no dependencies
 npm run test:all     # also loads the built page in jsdom and drives every control
 ```
 
-The emulator tests cover arithmetic, flags, decimal mode, shifts, addressing modes, subroutines, cycle counts, WSYNC alignment and a full 262-line frame. The wiring test runs every demo plus a torture program and checks that every element the animation tries to light exists in the schematic. The DOM test needs `npm install` (jsdom, Node 22.22 or newer); the app and the first two test files do not.
+The emulator tests cover arithmetic, flags, decimal mode, shifts, addressing modes, subroutines, cycle counts, WSYNC alignment and a full 262-line frame. The TIA and game tests check object positions, collisions and `HMOVE`, then play both games with scripted input. The wiring test runs every demo plus a torture program and checks that every element the animation tries to light exists in the schematic. The DOM test needs `npm install` (jsdom, Node 22.22 or newer); the app and the first two test files do not.
 
 To add a block or wire, add an entry to `src/layout.js`, then reference its id from the relevant event in `src/phases.js`. To add a demo, add an entry to `src/demos.js`.
 

@@ -58,6 +58,28 @@ def ram(pg):
     pg.wait_for_timeout(300)
 
 
+def play(pg, game, keys, ms):
+    """Loads a game from the Games group, plays it for a while with the given key presses, and leaves it running."""
+    open_program_panel(pg)
+    pg.select_option('#demoSel', label=game)
+    pg.wait_for_timeout(300)
+    for key, hold in keys:
+        pg.keyboard.down(key)
+        pg.wait_for_timeout(hold)
+        pg.keyboard.up(key)
+    pg.wait_for_timeout(ms)
+    pg.click('#bigTv')
+    pg.wait_for_timeout(150)
+
+
+def sentry(pg):
+    play(pg, 'Star Sentry', [('ArrowLeft', 350), ('Space', 200), ('ArrowRight', 900), ('Space', 200), ('ArrowRight', 500), ('Space', 200)], 900)
+
+
+def dash(pg):
+    play(pg, 'Dot Dash', [('ArrowRight', 1500), ('ArrowUp', 900), ('ArrowLeft', 1400)], 200)
+
+
 def die(pg):
     """The CPU as a toy die floorplan, with the regions glowing while LDA #$55 runs."""
     open_program_panel(pg)
@@ -73,6 +95,8 @@ def die(pg):
 JOBS = [
     ('overview', 1400, 860, 'dark', overview),
     ('die', 1400, 860, 'dark', die),
+    ('star-sentry', 1400, 900, 'dark', sentry),
+    ('dot-dash', 1400, 900, 'dark', dash),
     ('adder', 1400, 860, 'dark', adder),
     ('tia-picture', 1400, 860, 'dark', picture),
     ('riot-ram', 1400, 860, 'dark', ram),
